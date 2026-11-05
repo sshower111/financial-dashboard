@@ -18,6 +18,9 @@ export async function POST() {
       optional_products: [Products.Investments],
       transactions: { days_requested: 730 },
       webhook: process.env.PLAID_WEBHOOK_URL || undefined,
+      // OAuth banks (Chase, BofA, many Canadian banks) send the user back here; must be
+      // registered under Developers → API → Allowed redirect URIs in the Plaid dashboard
+      redirect_uri: process.env.PLAID_REDIRECT_URI || undefined,
     });
     return NextResponse.json({ link_token: data.link_token });
   } catch (e) {

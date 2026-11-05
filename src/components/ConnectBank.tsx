@@ -26,7 +26,10 @@ export function ConnectBank() {
     setMsg(null);
     const r = await fetch("/api/plaid/link-token", { method: "POST" });
     const j = await r.json();
-    if (r.ok) setToken(j.link_token); else setMsg(j.error);
+    if (r.ok) {
+      try { sessionStorage.setItem("ledger.linkToken", j.link_token); } catch { /* */ }
+      setToken(j.link_token);
+    } else setMsg(j.error);
   }
 
   return (
