@@ -16,7 +16,7 @@ import { DEFAULT_LAYOUT, sanitizeLayout } from "@/lib/layout";
 import { detectAnomalies } from "@/lib/finance/anomaly";
 import { todayKey } from "@/lib/finance/dates";
 import type { Transaction } from "@/lib/types";
-import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js";
+import type { AuthChangeEvent, RealtimePostgresChangesPayload, Session } from "@supabase/supabase-js";
 import type { CategorizeResult } from "@/lib/ai/categorize";
 
 const norm = (t: Record<string, unknown>): Transaction => ({ ...(t as unknown as Transaction), amount: Number(t.amount), ai_confidence_score: t.ai_confidence_score == null ? null : Number(t.ai_confidence_score), ai_tags: (t.ai_tags as string[]) ?? [] });
@@ -63,7 +63,16 @@ export function LiveSync() {
     if (DEMO_MODE) return;
     const sb = supabaseBrowser();
     let refetch: ReturnType<typeof setTimeout>;
-    const ch = sb.channel("ledger-live")
+    let ch: ReturnType<typeof sb.channel> | null = null;
+    let cancelled = false;
+    // Realtime enforces RLS, so the socket must carry the user's JWT. Subscribing before
+    // the session is attached joins as anon and silently receives nothing.
+    const { data: authSub } = sb.auth.onAuthStateChange((_e: AuthChangeEvent, session: Session | null) => { sb.realtime.setAuth(session?.access_token ?? null); });
+    (async () => {
+    const { data: { session } } = await sb.auth.getSession();
+    await sb.realtime.setAuth(session?.access_token ?? null);
+    if (cancelled) return;
+    ch = sb.channel("ledger-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "transactions" }, (p: RealtimePostgresChangesPayload<Record<string, unknown>>) => {
         const s = useLedger.getState();
         if (p.eventType === "DELETE") { s.removeTxn((p.old as { id: string }).id); return; }
@@ -81,8 +90,9 @@ export function LiveSync() {
           if (d && cur) useLedger.setState({ data: { ...cur, accounts: d.accounts, holdings: d.holdings } });
         }, 3000);
       })
-      .subscribe();
-    return () => { clearTimeout(refetch); sb.removeChannel(ch); };
+      .subscribe((status: string) => { if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") console.warn("realtime:", status); });
+    })();
+    return () => { cancelled = true; clearTimeout(refetch); authSub.subscription.unsubscribe(); if (ch) sb.removeChannel(ch); };
   }, []);
 
   // demo mode: simulator

@@ -12,6 +12,8 @@ export interface GenerateOptions {
   format?: "json" | Record<string, unknown>;
   temperature?: number;
   signal?: AbortSignal;
+  /** abort a non-streaming request after this long (first model load on CPU can take minutes) */
+  timeoutMs?: number;
 }
 
 function body(o: GenerateOptions, stream: boolean) {
@@ -24,7 +26,8 @@ function body(o: GenerateOptions, stream: boolean) {
 }
 
 export async function generate(o: GenerateOptions): Promise<string> {
-  const res = await fetch(`${OLLAMA_URL}/api/generate`, { method: "POST", headers: { "content-type": "application/json" }, body: body(o, false), signal: o.signal });
+  const signals = [o.signal, o.timeoutMs ? AbortSignal.timeout(o.timeoutMs) : undefined].filter((s): s is AbortSignal => !!s);
+  const res = await fetch(`${OLLAMA_URL}/api/generate`, { method: "POST", headers: { "content-type": "application/json" }, body: body(o, false), signal: signals.length ? AbortSignal.any(signals) : undefined });
   if (!res.ok) throw new Error(`Ollama ${res.status}: ${await res.text()}`);
   const json = (await res.json()) as { response: string };
   return json.response;

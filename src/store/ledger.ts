@@ -61,7 +61,13 @@ export const useLedger = create<State>((set) => ({
     const i = s.data.transactions.findIndex((x) => x.id === t.id);
     const transactions = [...s.data.transactions];
     const fresh = new Set(s.fresh);
-    if (i >= 0) transactions[i] = t; else { transactions.unshift(t); fresh.add(t.id); }
+    if (i >= 0) transactions[i] = t;
+    else {
+      // keep newest-first by date, then arrival time (historical backfills land in place)
+      const at = transactions.findIndex((x) => x.date < t.date || (x.date === t.date && x.created_at <= t.created_at));
+      transactions.splice(at < 0 ? transactions.length : at, 0, t);
+      fresh.add(t.id);
+    }
     return { data: { ...s.data, transactions }, fresh };
   }),
   removeTxn: (id) => set((s) => (s.data ? { data: { ...s.data, transactions: s.data.transactions.filter((t) => t.id !== id) } } : s)),

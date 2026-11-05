@@ -37,9 +37,9 @@ Amounts: positive = money spent, negative = money received. Credit-card payments
 Return JSON only.`;
 
 /** Categorize a batch with the local model. Throws if Ollama is unreachable (caller decides whether to retry). */
-export async function categorizeWithLLM(items: CategorizeInput[]): Promise<CategorizeResult[]> {
+export async function categorizeWithLLM(items: CategorizeInput[], timeoutMs = 300_000): Promise<CategorizeResult[]> {
   const prompt = JSON.stringify(items.map((i) => ({ id: i.id, raw: i.raw, amount: i.amount, currency: i.currency, hint: i.merchantHint ?? undefined })));
-  const text = await generate({ system: SYSTEM, prompt, format: SCHEMA, temperature: 0 });
+  const text = await generate({ system: SYSTEM, prompt, format: SCHEMA, temperature: 0, timeoutMs });
   const parsed = JSON.parse(text) as { results: Partial<CategorizeResult>[] };
   const byId = new Map(parsed.results.map((r) => [r.id, r]));
   return items.map((i) => {

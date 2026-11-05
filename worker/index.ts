@@ -174,6 +174,7 @@ async function processJobs() {
 }
 
 let ollamaUp = true;
+let firstBatch = true;
 async function categorize() {
   const { data } = await db.from("transactions").select("id,user_id,raw_merchant_string,cleaned_merchant_name,amount,iso_currency_code")
     .is("category", null).order("created_at").limit(BATCH);
@@ -185,7 +186,17 @@ async function categorize() {
   if (!ollamaUp) log("Ollama back online");
   ollamaUp = true;
   const t0 = Date.now();
-  const results = await categorizeWithLLM(data.map((t) => ({ id: t.id, raw: t.raw_merchant_string, amount: Number(t.amount), currency: t.iso_currency_code, merchantHint: t.cleaned_merchant_name })));
+  const { count } = await db.from("transactions").select("id", { count: "exact", head: true }).is("category", null);
+  log(`categorizing ${data.length} of ${count ?? "?"} queued with ${OLLAMA_MODEL}…${firstBatch ? " (first call loads the model; can take a few minutes on CPU)" : ""}`);
+  firstBatch = false;
+  let results;
+  try {
+    results = await categorizeWithLLM(data.map((t) => ({ id: t.id, raw: t.raw_merchant_string, amount: Number(t.amount), currency: t.iso_currency_code, merchantHint: t.cleaned_merchant_name })));
+  } catch (e) {
+    const msg = e instanceof Error ? (e.name === "TimeoutError" ? "timed out after 5 min" : e.message) : String(e);
+    log(`categorization failed: ${msg.slice(0, 200)} — will retry next tick`);
+    return 0;
+  }
   const userOf = new Map(data.map((t) => [t.id, t.user_id as string]));
   await Promise.all(results.map(async (r) => {
     // merge AI tags with any anomaly tags already present
