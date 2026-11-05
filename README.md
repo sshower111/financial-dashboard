@@ -1,4 +1,4 @@
-<h1>Ledger <sub><sup>· AI financial dashboard</sup></sub></h1>
+<h1>Financial Dashboard</h1>
 
 **[▶ Live demo](https://ai-financial-dashboard-iota.vercel.app)** · runs on synthetic data, no sign-up
 
@@ -23,15 +23,15 @@ A real-time personal finance dashboard that pulls bank and brokerage data from *
 **Locally**, with **no accounts, keys or database**, on a deterministic synthetic ledger:
 
 ```bash
-git clone https://github.com/sshower111/AI-financial-dashboard.git
-cd AI-financial-dashboard
+git clone https://github.com/sshower111/financial-dashboard.git
+cd financial-dashboard
 npm install
 npm run dev          # → http://localhost:3000
 ```
 
 Or deploy your own copy of the demo (no environment variables needed):
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fsshower111%2FAI-financial-dashboard&project-name=ledger-demo)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fsshower111%2Ffinancial-dashboard&project-name=financial-dashboard)
 
 The demo streams a new raw bank string (`SQ *BLUE BOTTLE COFFEE 4821`) every 10–15 seconds through the same categorization pipeline the production worker uses. The seeded history includes a duplicate charge, a subscription price hike and two bank fees for the anomaly scanner to catch.
 

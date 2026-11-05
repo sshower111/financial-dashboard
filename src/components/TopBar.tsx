@@ -33,7 +33,7 @@ export function TopBar() {
   return (
     <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line py-3">
       <div className="flex items-baseline gap-3">
-        <span className="text-[15px] font-semibold tracking-tight">Ledger</span>
+        <span className="text-[15px] font-semibold tracking-tight">Financial Dashboard</span>
         {demo && <span className="border border-line px-1.5 text-[11px] text-muted">demo data</span>}
       </div>
       {demo && ai.up === false ? (

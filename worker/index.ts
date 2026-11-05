@@ -1,5 +1,5 @@
 /**
- * Ledger background worker.
+ * Financial Dashboard background worker.
  *
  *   npm run worker
  *

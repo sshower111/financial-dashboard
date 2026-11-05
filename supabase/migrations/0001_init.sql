@@ -1,4 +1,4 @@
--- Ledger — initial schema
+-- Financial Dashboard — initial schema
 -- Based on the spec schema, with these corrections:
 --   * `references auth.users(not null)` is invalid SQL → `not null references auth.users(id) on delete cascade`
 --   * institutions.plaid_item_id added (Plaid webhooks identify items by item_id, not institution)

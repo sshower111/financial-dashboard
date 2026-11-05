@@ -35,7 +35,7 @@ export default function OAuthReturn() {
   return (
     <main className="grid min-h-dvh place-items-center px-4">
       <div className="max-w-sm border border-line px-5 py-4">
-        <div className="text-[15px] font-semibold tracking-tight">Ledger</div>
+        <div className="text-[15px] font-semibold tracking-tight">Financial Dashboard</div>
         <p className="mt-2 text-ink-2">{msg}</p>
         <a href="/" className="mt-3 inline-block text-[12px] text-muted underline underline-offset-2">Back to dashboard</a>
       </div>

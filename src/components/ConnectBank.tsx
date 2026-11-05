@@ -35,9 +35,9 @@ export function ConnectBank() {
   return (
     <div className="flex items-center gap-2">
       {msg && <span className="hidden text-[12px] text-muted lg:inline">{msg}</span>}
-      <button onClick={start} disabled={demo} title={demo ? "Configure Supabase + Plaid to link real institutions" : "Link a bank, card or brokerage account"}
+      <button onClick={start} disabled={demo} title={demo ? "Configure Supabase + Plaid to link real institutions" : "Link a bank, card or brokerage account"} aria-label="Link institution"
         className="flex h-7 items-center gap-1.5 border border-line px-2.5 text-[12px] hover:border-ink disabled:cursor-not-allowed disabled:opacity-50">
-        <Plus size={12} /> Link institution
+        <Plus size={12} /> <span className="hidden sm:inline">Link institution</span>
       </button>
     </div>
   );

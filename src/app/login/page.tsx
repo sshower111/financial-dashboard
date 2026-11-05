@@ -19,7 +19,7 @@ export default function Login() {
     <main className="grid min-h-dvh place-items-center px-4">
       <div className="w-full max-w-sm border border-line">
         <div className="border-b border-line px-5 py-4">
-          <div className="text-[15px] font-semibold tracking-tight">Ledger</div>
+          <div className="text-[15px] font-semibold tracking-tight">Financial Dashboard</div>
           <div className="label mt-0.5">Sign in with a one-time email link</div>
         </div>
         {DEMO_MODE ? (
