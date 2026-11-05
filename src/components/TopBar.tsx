@@ -36,11 +36,19 @@ export function TopBar() {
         <span className="text-[15px] font-semibold tracking-tight">Ledger</span>
         {demo && <span className="border border-line px-1.5 text-[11px] text-muted">demo data</span>}
       </div>
-      <div className="flex items-center gap-1.5 text-[11px] text-muted" title={ai.up ? "Local model reachable" : "Ollama not reachable: categorization queues, copilot unavailable"}>
-        <span className={`h-1.5 w-1.5 ${ai.up ? "bg-ink" : ai.up === false ? "bg-accent" : "bg-line-strong"}`} />
-        <span className="num">{ai.model || "ollama"}</span>
-        <span>{ai.up ? "local" : ai.up === false ? "offline" : "…"}</span>
-      </div>
+      {demo && ai.up === false ? (
+        // hosted demo: no local model, so the simulator uses the rules categorizer — not an error
+        <div className="flex items-center gap-1.5 text-[11px] text-muted" title="No local model here, so transactions are categorized by keyword rules. Run locally with Ollama for LLM categorization and the copilot.">
+          <span className="h-1.5 w-1.5 bg-line-strong" />
+          <span>AI: rules fallback</span>
+        </div>
+      ) : (
+        <div className="flex items-center gap-1.5 text-[11px] text-muted" title={ai.up ? "Local model reachable" : "Ollama not reachable: categorization queues, copilot unavailable"}>
+          <span className={`h-1.5 w-1.5 ${ai.up ? "bg-ink" : ai.up === false ? "bg-accent" : "bg-line-strong"}`} />
+          <span className="num">{ai.model || "ollama"}</span>
+          <span>{ai.up ? "local" : ai.up === false ? "offline" : "…"}</span>
+        </div>
+      )}
 
       <div className="ml-auto flex flex-wrap items-center gap-2">
         {editing && (

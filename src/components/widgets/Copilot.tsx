@@ -9,6 +9,7 @@ const SUGGESTIONS = ["Why was my burn rate higher this week?", "What subscriptio
 export function Copilot() {
   const base = useLedger((s) => s.base);
   const ai = useLedger((s) => s.ai);
+  const demo = useLedger((s) => s.demo);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -43,7 +44,11 @@ export function Copilot() {
       <div className="scroll-thin min-h-0 flex-1 overflow-auto px-3 py-3">
         {!msgs.length ? (
           <div className="flex h-full flex-col justify-end gap-2">
-            <p className="text-[12px] text-muted">Ask about your ledger. Answers come from <span className="num">{ai.model || "the local model"}</span> on this machine. Nothing leaves localhost.</p>
+            <p className="text-[12px] text-muted">
+              {demo && ai.up === false
+                ? <>Ask about your ledger. The copilot runs on a local LLM via Ollama, so it isn&apos;t available in this hosted demo. Run the project locally to try it.</>
+                : <>Ask about your ledger. Answers come from <span className="num">{ai.model || "the local model"}</span> on this machine. Nothing leaves localhost.</>}
+            </p>
             <div className="flex flex-wrap gap-1.5">
               {SUGGESTIONS.map((s) => <button key={s} onClick={() => ask(s)} className="border border-line px-2 py-1 text-left text-[12px] text-ink-2 hover:border-ink hover:text-ink">{s}</button>)}
             </div>
