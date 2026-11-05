@@ -1,6 +1,43 @@
 # Ledger
 
-A minimal, local-AI personal finance dashboard. Next.js 16 (App Router) · Supabase (Postgres + RLS + Realtime) · Plaid (US + CA, Transactions + Investments) · Ollama on localhost for categorization and the copilot. No ledger data goes to a cloud LLM.
+A minimal, local-AI personal finance dashboard. Next.js 16 (App Router) · Supabase (Postgres + RLS + Realtime) · Plaid (US + CA, Transactions + Investments) · Ollama on localhost for categorization and the copilot. **No ledger data goes to a cloud LLM.**
+
+![Dashboard, light](docs/screenshots/dashboard-light.png)
+
+<table>
+<tr>
+<td width="62%"><img src="docs/screenshots/dashboard-dark.png" alt="Dashboard, dark"></td>
+<td width="38%"><img src="docs/screenshots/mobile.png" alt="Mobile"></td>
+</tr>
+</table>
+
+![Edit layout](docs/screenshots/edit-layout.png)
+
+<sub>All screenshots use the built-in synthetic demo ledger. No real accounts.</sub>
+
+## Features
+
+- **Unified net worth** across cash, credit, loans and brokerage. Each account keeps its native currency (CAD/USD/EUR/GBP) and is converted to a switchable base currency using Bank of Canada rates.
+- **Plaid ingestion** for US and Canadian institutions, with investment holdings, signed webhooks, cursor-based sync and OAuth bank support.
+- **Async AI categorization**: a background worker cleans merchant strings and assigns category, subcategory, tags and confidence using a local Ollama model. The UI never waits on it.
+- **Budget pacing**: month-to-date spend against how far through the month you are (`1.00×` is on pace).
+- **Leakage detection**: duplicate charges, subscription price hikes, bank fees and unusual amounts.
+- **Wallet weather**: a 30-day cash projection from detected income, bills, card balances and discretionary burn → Clear / Overcast / Storm.
+- **Copilot**: streaming natural-language Q&A over your ledger, answered by the local model.
+- **Live activity feed** over Supabase Realtime: ingested → categorized → flagged.
+- **Customizable layout**: drag to reorder, resize, add or remove widgets. Persisted as JSON per user.
+
+## Demo
+
+The app runs with **no configuration** on a deterministic synthetic ledger:
+
+```bash
+git clone <this repo> && cd ledger
+npm install
+npm run dev        # http://localhost:3000 with no .env.local → demo mode
+```
+
+Demo mode streams a new raw bank transaction every 10–15 s through the same categorizer the worker uses: your local Ollama model if it's running, otherwise a rules fallback (shown as `rules` in the feed). The seeded data includes a duplicate Uber Eats charge, a Netflix price hike and two bank fees for the anomaly scanner to find.
 
 ## Run it
 
@@ -24,7 +61,7 @@ ollama pull qwen3.5:9b         # or set OLLAMA_MODEL to any model you have
 ## Live setup
 
 1. Apply `supabase/migrations/0001_init.sql` (SQL editor, or `supabase db push`).
-2. Fill `.env.local`: Supabase URL, anon key, service-role key, plus Plaid keys. Set `PLAID_WEBHOOK_URL` to a public URL that reaches `/api/plaid/webhook`, for example via a tunnel.
+2. Fill `.env.local`: Supabase URL, anon key, service-role key, plus Plaid keys. Set `PLAID_WEBHOOK_URL` and `PLAID_REDIRECT_URI` (`…/oauth`) to a public HTTPS URL, for example an ngrok static domain. Register the redirect URI in the Plaid dashboard, then use the app through that URL.
 3. Enable email (magic link) auth in Supabase and add `http://localhost:3000/auth/callback` to the redirect URLs.
 4. Run `npm run dev` and `npm run worker` side by side, then use **Link institution**.
 
@@ -83,4 +120,5 @@ The dashboard is a 12-column CSS grid driven by a JSON `layout_config` of `[{ i,
 
 - Run a single worker: job claiming isn't safe across concurrent workers.
 - Item errors (`ITEM_LOGIN_REQUIRED`) are logged, but Plaid Link update mode isn't wired up yet.
+- The first sync after linking retries with backoff (about 15 min) until Plaid finishes its initial pull. After that, new data arrives only through webhooks.
 - Net-worth history doesn't include investment price changes.
