@@ -1,10 +1,10 @@
 <h1>Financial Dashboard</h1>
 
-**[▶ Live demo](https://ai-financial-dashboard-iota.vercel.app)** · runs on synthetic data, no sign-up
+**[▶ Live demo](https://financial-dashboard-sshower.vercel.app)** · runs on synthetic data, no sign-up
 
 A real-time personal finance dashboard that pulls bank and brokerage data from **Plaid**, categorizes every transaction with a **local LLM (Ollama)**, flags money leaks, and forecasts the next 30 days of cash. Your financial data never goes to a cloud AI provider.
 
-[![Live demo](https://img.shields.io/badge/Live_demo-online-C85A32)](https://ai-financial-dashboard-iota.vercel.app)
+[![Live demo](https://img.shields.io/badge/Live_demo-online-C85A32)](https://financial-dashboard-sshower.vercel.app)
 ![Next.js](https://img.shields.io/badge/Next.js_16-000?logo=nextdotjs&logoColor=fff)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=fff)
 ![Supabase](https://img.shields.io/badge/Supabase-Postgres_·_RLS_·_Realtime-3FCF8E?logo=supabase&logoColor=fff)
@@ -18,7 +18,7 @@ A real-time personal finance dashboard that pulls bank and brokerage data from *
 
 ## Try the demo
 
-**Hosted:** [ai-financial-dashboard-iota.vercel.app](https://ai-financial-dashboard-iota.vercel.app) shows synthetic data with transactions streaming in live. The hosted demo has no local model, so transactions are categorized by keyword rules and the copilot is disabled. Run it locally with Ollama to see LLM categorization and the copilot.
+**Hosted:** [financial-dashboard-sshower.vercel.app](https://financial-dashboard-sshower.vercel.app) shows synthetic data with transactions streaming in live. The hosted demo has no local model, so transactions are categorized by keyword rules and the copilot is disabled. Run it locally with Ollama to see LLM categorization and the copilot.
 
 **Locally**, with **no accounts, keys or database**, on a deterministic synthetic ledger:
 
