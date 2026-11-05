@@ -26,6 +26,7 @@ import type { RemovedTransaction, Transaction as PlaidTxn } from "plaid";
 const db = supabaseAdmin();
 const POLL_MS = Number(process.env.WORKER_POLL_MS ?? 5000);
 const BATCH = 10;
+const MAX_ATTEMPTS = 8;
 const log = (...a: unknown[]) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
 interface Item { id: string; user_id: string; access_token: string; cursor: string | null; country: string }
@@ -55,6 +56,7 @@ async function accountMap(institutionId: string) {
 async function syncTransactions(item: Item) {
   const acc = await accountMap(item.id);
   let cursor = item.cursor ?? undefined;
+  let status = "TRANSACTIONS_UPDATE_STATUS_UNKNOWN";
   const added: PlaidTxn[] = [], modified: PlaidTxn[] = [], removed: RemovedTransaction[] = [];
   for (let restarts = 0; ; ) {
     try {
@@ -62,7 +64,7 @@ async function syncTransactions(item: Item) {
       while (more) {
         const { data } = await plaid().transactionsSync({ access_token: item.access_token, cursor, count: 500, options: { include_original_description: true } });
         added.push(...data.added); modified.push(...data.modified); removed.push(...data.removed);
-        more = data.has_more; cursor = data.next_cursor;
+        more = data.has_more; cursor = data.next_cursor; status = data.transactions_update_status;
       }
       break;
     } catch (e: unknown) {
@@ -92,8 +94,8 @@ async function syncTransactions(item: Item) {
   const removedIds = removed.map((r) => r.transaction_id).filter(Boolean);
   if (removedIds.length) await db.from("transactions").delete().in("plaid_transaction_id", removedIds).throwOnError();
   await db.from("institutions").update({ cursor }).eq("id", item.id).throwOnError();
-  log(`sync item ${item.id.slice(0, 8)}: +${added.length} ~${modified.length} -${removed.length}`);
-  return item.user_id;
+  log(`sync item ${item.id.slice(0, 8)}: +${added.length} ~${modified.length} -${removed.length} (${status})`);
+  return { userId: item.user_id, complete: status === "HISTORICAL_UPDATE_COMPLETE" };
 }
 
 async function syncHoldings(item: Item) {
@@ -132,8 +134,10 @@ async function syncHoldings(item: Item) {
 const dirtyUsers = new Set<string>();
 
 async function processJobs() {
-  const { data: jobs } = await db.from("webhook_logs").select("*").eq("processed", false).lt("attempts", 5).order("created_at").limit(BATCH);
-  for (const job of jobs ?? []) {
+  const { data: rows } = await db.from("webhook_logs").select("*").eq("processed", false).lt("attempts", MAX_ATTEMPTS).order("created_at").limit(50);
+  // backoff: attempt n waits 20s·n² after the job was created (0s, 20s, 80s, 3m, 5m…)
+  const jobs = (rows ?? []).filter((j) => Date.now() >= new Date(j.created_at).getTime() + 20_000 * j.attempts ** 2).slice(0, BATCH);
+  for (const job of jobs) {
     const { webhook_type: type, webhook_code: code } = job;
     const itemId = job.payload?.item_id as string | undefined;
     try {
@@ -142,9 +146,18 @@ async function processJobs() {
         if (type === "INTERNAL" || type === "TRANSACTIONS") {
           await refreshAccounts(item);
           if (type === "INTERNAL" || code === "SYNC_UPDATES_AVAILABLE" || code === "INITIAL_UPDATE" || code === "HISTORICAL_UPDATE" || code === "DEFAULT_UPDATE") {
-            dirtyUsers.add(await syncTransactions(item));
+            const r = await syncTransactions(item);
+            dirtyUsers.add(r.userId);
+            if (type === "INTERNAL") {
+              await syncHoldings(item);
+              // Right after Link, Plaid is usually still pulling history. Without a webhook
+              // nothing would tell us when it's ready, so the first-sync job retries itself.
+              if (!r.complete && job.attempts + 1 < MAX_ATTEMPTS) {
+                await db.from("webhook_logs").update({ attempts: job.attempts + 1, error: "waiting for Plaid to finish the initial pull" }).eq("id", job.id);
+                continue;
+              }
+            }
           }
-          if (type === "INTERNAL") await syncHoldings(item);
         } else if (type === "HOLDINGS" || type === "INVESTMENTS_TRANSACTIONS") {
           await refreshAccounts(item); await syncHoldings(item);
         } else if (type === "ITEM") {
