@@ -4,7 +4,7 @@ import { ArrowUp, Square } from "lucide-react";
 import { useLedger } from "@/store/ledger";
 
 interface Msg { role: "user" | "assistant"; content: string }
-const SUGGESTIONS = ["Why was my burn rate higher this week?", "What subscriptions went up?", "Can I afford a CAD 1,200 trip this month?", "Where is most of my dining money going?"];
+const SUGGESTIONS = ["Why was my burn rate higher this week?", "What subscriptions went up?", "Can I afford a $1,200 trip this month?", "Where is most of my dining money going?"];
 
 export function Copilot() {
   const base = useLedger((s) => s.base);

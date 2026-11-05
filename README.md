@@ -5,13 +5,13 @@ A real-time personal finance dashboard that pulls bank and brokerage data from *
 ![Next.js](https://img.shields.io/badge/Next.js_16-000?logo=nextdotjs&logoColor=fff)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=fff)
 ![Supabase](https://img.shields.io/badge/Supabase-Postgres_·_RLS_·_Realtime-3FCF8E?logo=supabase&logoColor=fff)
-![Plaid](https://img.shields.io/badge/Plaid-US_+_CA-111?logo=plaid&logoColor=fff)
+![Plaid](https://img.shields.io/badge/Plaid-Transactions_+_Investments-111)
 ![Ollama](https://img.shields.io/badge/Ollama-local_LLM-000?logo=ollama&logoColor=fff)
 ![Tailwind](https://img.shields.io/badge/Tailwind_v4-06B6D4?logo=tailwindcss&logoColor=fff)
 
-![Demo: transactions stream in and get categorized live, base currency switches CAD↔USD, the layout is rearranged, dark mode](docs/demo.gif)
+![Demo: transactions stream in and get categorized live, base currency switches USD↔EUR, the layout is rearranged, dark mode](docs/demo.gif)
 
-<sub>Demo mode on synthetic data, sped up. New bank transactions stream in and are categorized live, net worth recalculates in CAD or USD, and panels are rearranged and resized.</sub>
+<sub>Demo mode on synthetic data, sped up. New bank transactions stream in and are categorized live, net worth recalculates in USD or EUR, and panels are rearranged and resized.</sub>
 
 ## Try the demo
 
@@ -28,14 +28,14 @@ Or deploy the demo to Vercel in one click (no environment variables needed):
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fsshower111%2FAI-financial-dashboard&project-name=ledger-demo)
 
-The demo streams a new raw bank string (`SQ *PILOT COFFEE ROAST 4821`) every 10–15 seconds through the same categorization pipeline the production worker uses. The seeded history includes a duplicate charge, a subscription price hike and two bank fees for the anomaly scanner to catch.
+The demo streams a new raw bank string (`SQ *BLUE BOTTLE COFFEE 4821`) every 10–15 seconds through the same categorization pipeline the production worker uses. The seeded history includes a duplicate charge, a subscription price hike and two bank fees for the anomaly scanner to catch.
 
 ## What it does
 
 | | |
 |---|---|
-| **Unified net worth** | Cash, credit, loans and brokerage in one number. Each account keeps its native currency (CAD/USD/EUR/GBP) and is converted to a switchable base using daily Bank of Canada rates. |
-| **Bank & brokerage sync** | Plaid Transactions + Investments for US and Canadian institutions, with OAuth bank support and signed webhooks. |
+| **Unified net worth** | Cash, credit, loans and brokerage in one number. Each account keeps its native currency (USD/EUR/GBP/CAD) and is converted to a switchable base currency using daily ECB reference rates. |
+| **Bank & brokerage sync** | Plaid Transactions + Investments for checking, savings, credit cards, loans, IRAs and brokerage accounts, with OAuth bank support and signed webhooks. |
 | **AI categorization** | A local LLM cleans merchant names (`TST* JOE'S PIZZA NEW YORK NY` → `Joe's Pizza`) and assigns category, subcategory, tags and confidence, in the background. |
 | **Leak detection** | Duplicate charges, subscription price hikes, bank fees and unusual amounts, with the total at stake. |
 | **Wallet weather** | A 30-day cash projection from detected paycheques, bills, card balances and spending rate, summarized as Clear / Overcast / Storm. |
@@ -62,7 +62,7 @@ flowchart LR
   K -- "/transactions/sync<br/>holdings · balances" --> P
   K -- "JSON-schema prompts" --> O[Ollama<br/>localhost]
   K --> DB[(Supabase Postgres<br/>RLS)]
-  BoC[Bank of Canada FX] --> K
+  FX[ECB FX rates<br/>via Frankfurter] --> K
   DB -- Realtime --> UI[Next.js dashboard]
   UI -- question --> C["/api/copilot"]
   C -- "ledger snapshot" --> O
@@ -71,12 +71,12 @@ flowchart LR
 
 ## Tech stack
 
-**Frontend:** Next.js 16 (App Router), React 19, Tailwind CSS v4, Zustand, Recharts, Framer Motion, Lucide · **Backend:** Next.js route handlers, Node worker (`tsx`) · **Data:** Supabase (Postgres, RLS, Realtime, magic-link auth) · **Integrations:** Plaid (Transactions, Investments), Ollama (`qwen3.5:9b` by default), Bank of Canada Valet API · **Testing:** `node:test`, Playwright
+**Frontend:** Next.js 16 (App Router), React 19, Tailwind CSS v4, Zustand, Recharts, Framer Motion, Lucide · **Backend:** Next.js route handlers, Node worker (`tsx`) · **Data:** Supabase (Postgres, RLS, Realtime, magic-link auth) · **Integrations:** Plaid (Transactions, Investments), Ollama (`qwen3.5:9b` by default), Frankfurter (ECB exchange rates) · **Testing:** `node:test`, Playwright
 
 ## Connect real accounts
 
-1. Create a Supabase project and run `supabase/migrations/0001_init.sql`.
-2. `cp .env.example .env.local`, then fill in the Supabase URL and keys and your Plaid keys (start with `PLAID_ENV=sandbox`).
+1. Create a Supabase project and run the SQL files in `supabase/migrations/` in order.
+2. `cp .env.example .env.local`, then fill in the Supabase URL and keys and your Plaid keys (start with `PLAID_ENV=sandbox`). `PLAID_COUNTRY_CODES` defaults to `US`.
 3. In Supabase → Authentication → URL Configuration, add `http://localhost:3000/auth/callback`.
 4. For OAuth banks and webhooks, expose the app over HTTPS (for example an ngrok static domain). Set `PLAID_REDIRECT_URI=https://…/oauth` and `PLAID_WEBHOOK_URL=https://…/api/plaid/webhook`, and register the redirect URI in the Plaid dashboard.
 5. Start a local model: `ollama pull qwen3.5:9b` (or set `OLLAMA_MODEL` to any model you have).
@@ -130,7 +130,7 @@ Pure functions shared by the UI, the worker and the copilot context builder, wit
 - Added `institutions.plaid_item_id`, because Plaid webhooks identify items, not institutions.
 - **Plaid access tokens never reach the browser**: column-level grants hide `access_token`, and only the service role can write institutions, accounts, holdings or new transactions. Clients can recategorize transactions and rename or deactivate accounts.
 - `webhook_logs` has RLS with no policies, so only the service role can use it. It also gained `error` and `attempts` columns to work as the job queue.
-- New tables: `budgets`, `user_settings` (base currency) and `fx_rates` (refreshed from the Bank of Canada Valet API).
+- New tables: `budgets`, `user_settings` (base currency) and `fx_rates` (USD-based ECB reference rates from Frankfurter, refreshed twice a day).
 - Policies are `to authenticated` with `(select auth.uid())`. Added indexes on the hot paths and enabled Realtime on `transactions`.
 
 ## Layout

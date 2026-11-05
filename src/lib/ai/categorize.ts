@@ -26,7 +26,7 @@ const SCHEMA = {
   required: ["results"],
 };
 
-const SYSTEM = `You categorize bank transactions for a personal ledger (US and Canadian banks).
+const SYSTEM = `You categorize bank transactions for a personal ledger (primarily US banks and cards).
 For each item:
 - merchant: the clean, human brand name ("SQ *PILOT COFFEE ROAST 4821" → "Pilot Coffee"). Strip processor prefixes (SQ *, TST*, PAYPAL *), store numbers, cities, phone numbers and reference codes.
 - category: exactly one of ${CATEGORIES.join(", ")}.
@@ -58,28 +58,29 @@ export async function categorizeWithLLM(items: CategorizeInput[], timeoutMs = 30
 
 const RULES: [RegExp, Category, string, string[]?][] = [
   [/payroll|direct dep|salary/i, "Income", "Payroll", ["salary"]],
-  [/stripe transfer|interac e-?tfr from|deposit/i, "Income", "Deposit"],
-  [/bill pymt|payment - thank|tfr-to|transfer/i, "Transfer", "Transfer"],
-  [/rent|prop mgmt|mortgage/i, "Housing", "Rent", ["fixed"]],
-  [/hydro|enbridge|rogers|bell |telus|fido|comcast|verizon/i, "Utilities", "Utilities", ["fixed"]],
-  [/loblaws|farm boy|metro|sobeys|no frills|whole foods|trader joe|costco|safeway/i, "Groceries", "Supermarket"],
-  [/coffee|starbucks|tim hortons|cafe/i, "Dining", "Coffee"],
-  [/uber\s*\*?\s*eats|doordash|skip/i, "Dining", "Delivery"],
+  [/stripe transfer|received from|zelle from|deposit/i, "Income", "Deposit"],
+  [/ach pmt|bill pymt|payment - thank|autopay|transfer/i, "Transfer", "Transfer"],
+  [/rent|greystar|prop mgmt|mortgage/i, "Housing", "Rent", ["fixed"]],
+  [/con ed|pg&e|duke energy|comcast|xfinity|verizon|t-mobile|at&t/i, "Utilities", "Utilities", ["fixed"]],
+  [/trader joe|wholefds|whole foods|costco|safeway|kroger|publix|wegmans|aldi|h-e-b/i, "Groceries", "Supermarket"],
+  [/coffee|starbucks|dunkin|cafe/i, "Dining", "Coffee"],
+  [/uber\s*\*?\s*eats|doordash|grubhub/i, "Dining", "Delivery"],
   [/restaurant|pizza|thai|sushi|grill|bar /i, "Dining", "Restaurant"],
-  [/lcbo|beer store|saq/i, "Dining", "Alcohol"],
-  [/presto|ttc|uber|lyft|shell|esso|petro/i, "Transport", "Transit"],
-  [/netflix|spotify|apple\.com\/bill|disney|crave|youtube/i, "Subscriptions", "Streaming", ["subscription"]],
-  [/amzn|amazon|indigo|best buy|walmart|target/i, "Shopping", "Retail"],
-  [/pharma|drug mart|fitness|gym|dental/i, "Health", "Health"],
-  [/cineplex|ticketmaster|steam/i, "Entertainment", "Entertainment"],
+  [/wine|liquor|total wine/i, "Dining", "Alcohol"],
+  [/mta|metrocard|omny|bart|uber|lyft|shell|chevron|exxon/i, "Transport", "Transit"],
+  [/netflix|spotify|apple\.com\/bill|disney|hulu|max\.com|youtube/i, "Subscriptions", "Streaming", ["subscription"]],
+  [/amzn|amazon|barnes|best buy|walmart|target/i, "Shopping", "Retail"],
+  [/pharma|cvs|walgreens|fitness|equinox|gym|dental/i, "Health", "Health"],
+  [/amc |regal|ticketmaster|steam/i, "Entertainment", "Entertainment"],
   [/fee|nsf|overdraft|interest charge/i, "Fees", "Bank fee"],
-  [/air canada|westjet|delta|hotel|airbnb|expedia/i, "Travel", "Travel", ["travel"]],
+  [/delta air|united air|american air|jetblue|southwest|hotel|airbnb|expedia/i, "Travel", "Travel", ["travel"]],
 ];
 
 const BRANDS: [RegExp, string][] = [
-  [/amzn|amazon/i, "Amazon"], [/lcbo/i, "LCBO"], [/presto/i, "PRESTO"], [/loblaws/i, "Loblaws"], [/farm boy/i, "Farm Boy"],
-  [/pilot coffee/i, "Pilot Coffee"], [/blue bottle/i, "Blue Bottle Coffee"], [/indigo/i, "Indigo"], [/uber\s*\*?\s*eats/i, "Uber Eats"],
-  [/uber/i, "Uber"], [/netflix/i, "Netflix"], [/spotify/i, "Spotify"], [/apple\.com\/bill/i, "Apple"], [/shoppers drug/i, "Shoppers Drug Mart"],
+  [/amzn|amazon/i, "Amazon"], [/trader joe/i, "Trader Joe's"], [/wholefds|whole foods/i, "Whole Foods"], [/mta|metrocard/i, "MTA"],
+  [/blue bottle/i, "Blue Bottle Coffee"], [/barnes/i, "Barnes & Noble"], [/joe's pizza/i, "Joe's Pizza"], [/cafe einstein/i, "Café Einstein"],
+  [/uber\s*\*?\s*eats/i, "Uber Eats"], [/doordash/i, "DoorDash"], [/uber/i, "Uber"], [/netflix/i, "Netflix"], [/spotify/i, "Spotify"],
+  [/apple\.com\/bill/i, "Apple"], [/cvs/i, "CVS Pharmacy"],
 ];
 
 /** Deterministic fallback used by the demo when no local model is running. */

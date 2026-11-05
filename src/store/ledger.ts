@@ -45,7 +45,7 @@ export const useLedger = create<State>((set) => ({
   status: "loading",
   demo: true,
   data: null,
-  base: "CAD",
+  base: "USD",
   layout: DEFAULT_LAYOUT,
   editing: false,
   events: [],

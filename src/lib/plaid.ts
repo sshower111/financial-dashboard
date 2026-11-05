@@ -1,4 +1,4 @@
-import { Configuration, PlaidApi, PlaidEnvironments } from "plaid";
+import { Configuration, CountryCode, PlaidApi, PlaidEnvironments } from "plaid";
 
 let api: PlaidApi | null = null;
 export function plaid(): PlaidApi {
@@ -12,5 +12,12 @@ export function plaid(): PlaidApi {
   return api;
 }
 
-export const SUPPORTED_CCY = new Set(["CAD", "USD", "EUR", "GBP"]);
+/** Plaid Link countries, from PLAID_COUNTRY_CODES (comma-separated). Defaults to US only. */
+export function plaidCountries(): CountryCode[] {
+  const valid = new Set<string>(Object.values(CountryCode));
+  const list = (process.env.PLAID_COUNTRY_CODES ?? "US").split(",").map((c) => c.trim().toUpperCase()).filter((c) => valid.has(c));
+  return (list.length ? list : ["US"]) as CountryCode[];
+}
+
+export const SUPPORTED_CCY = new Set(["USD", "EUR", "GBP", "CAD"]);
 export const ACCOUNT_TYPES = new Set(["depository", "credit", "investment", "loan"]);

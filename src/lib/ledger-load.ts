@@ -31,12 +31,12 @@ export async function loadLedger(sb: SupabaseClient, days = 180): Promise<Ledger
     holdings: (hold.data ?? []).map((h) => ({ ...h, quantity: Number(h.quantity), institution_price: Number(h.institution_price), institution_value: Number(h.institution_value) })) as Holding[],
     budgets: (bud.data ?? []).map((b) => ({ ...b, monthly_limit: Number(b.monthly_limit) })) as Budget[],
     fxRows: (fx.data ?? []).map((f) => ({ ...f, rate: Number(f.rate) })) as FxRow[],
-    base: (settings.data?.base_currency as Currency) ?? "CAD",
+    base: (settings.data?.base_currency as Currency) ?? "USD",
   };
 }
 
 export function demoLedger(): LedgerData {
-  return { institutions: demoInstitutions, accounts: demoAccounts, transactions: demoTransactions(), holdings: demoHoldings, budgets: demoBudgets, fxRows: demoFx, base: "CAD" };
+  return { institutions: demoInstitutions, accounts: demoAccounts, transactions: demoTransactions(), holdings: demoHoldings, budgets: demoBudgets, fxRows: demoFx, base: "USD" };
 }
 
 export const toLedger = (d: LedgerData, base: Currency = d.base): Ledger => ({

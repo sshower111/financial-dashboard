@@ -1,4 +1,4 @@
-export type Currency = "CAD" | "USD" | "EUR" | "GBP";
+export type Currency = "USD" | "EUR" | "GBP" | "CAD";
 export type AccountType = "depository" | "credit" | "investment" | "loan" | "other";
 
 export interface Institution {

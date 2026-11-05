@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { CountryCode, Products } from "plaid";
-import { plaid } from "@/lib/plaid";
+import { Products } from "plaid";
+import { plaid, plaidCountries } from "@/lib/plaid";
 import { requireUser } from "@/lib/supabase/server";
 import { DEMO_MODE } from "@/lib/env";
 
@@ -13,12 +13,12 @@ export async function POST() {
       user: { client_user_id: user.id },
       client_name: "Ledger",
       language: "en",
-      country_codes: [CountryCode.Us, CountryCode.Ca],
+      country_codes: plaidCountries(),
       products: [Products.Transactions],
       optional_products: [Products.Investments],
       transactions: { days_requested: 730 },
       webhook: process.env.PLAID_WEBHOOK_URL || undefined,
-      // OAuth banks (Chase, BofA, many Canadian banks) send the user back here; must be
+      // OAuth banks (Chase, BofA, Wells Fargo and others) send the user back here; must be
       // registered under Developers → API → Allowed redirect URIs in the Plaid dashboard
       redirect_uri: process.env.PLAID_REDIRECT_URI || undefined,
     });

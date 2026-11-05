@@ -112,7 +112,7 @@ export function LiveSync() {
       const sample = LIVE_SAMPLES[Math.floor(Math.random() * LIVE_SAMPLES.length)];
       const amount = dup ? last.amount : Math.round((sample.min + Math.random() * (sample.max - sample.min)) * 100) / 100;
       const t: Transaction = {
-        id: `live-${Date.now()}`, account_id: dup ? last.account_id : sample.acct, amount, iso_currency_code: dup ? last.iso_currency_code : sample.ccy ?? "CAD",
+        id: `live-${Date.now()}`, account_id: dup ? last.account_id : sample.acct, amount, iso_currency_code: dup ? last.iso_currency_code : sample.ccy ?? "USD",
         date: todayKey(), raw_merchant_string: dup ? last.raw_merchant_string : sample.raw, cleaned_merchant_name: null, category: null, subcategory: null,
         ai_confidence_score: null, ai_tags: [], is_anomaly: false, is_pending: false, created_at: new Date().toISOString(),
       };

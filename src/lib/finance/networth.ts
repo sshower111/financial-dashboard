@@ -6,7 +6,7 @@ export interface NetWorth {
   assets: number;
   liabilities: number;
   byType: Record<"depository" | "investment" | "credit" | "loan" | "other", number>;
-  /** native-currency subtotals, so USD and CAD stay visible before conversion */
+  /** native-currency subtotals, so each currency stays visible before conversion */
   byCurrency: Record<string, { assets: number; liabilities: number }>;
   missingFx: string[];
 }

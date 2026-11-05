@@ -18,7 +18,7 @@ export function Holdings() {
         {rows.map((h) => (
           <tr key={h.id}>
             <td className="max-w-0"><div className="num">{h.ticker}</div><div className="truncate text-[11px] text-muted">{h.name}</div></td>
-            <td className="r num">{h.quantity.toLocaleString("en-CA", { maximumFractionDigits: 4 })}</td>
+            <td className="r num">{h.quantity.toLocaleString("en-US", { maximumFractionDigits: 4 })}</td>
             <td className="r hidden sm:table-cell"><Money value={h.institution_price} ccy={h.currency} /></td>
             <td className="r"><Money value={h.institution_value} ccy={h.currency} /></td>
             <td className="r">

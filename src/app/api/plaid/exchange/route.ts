@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { CountryCode } from "plaid";
-import { ACCOUNT_TYPES, SUPPORTED_CCY, plaid } from "@/lib/plaid";
+import { ACCOUNT_TYPES, SUPPORTED_CCY, plaid, plaidCountries } from "@/lib/plaid";
 import { requireUser } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
@@ -18,7 +18,7 @@ export async function POST(req: Request) {
     const instId = item.item.institution_id ?? "unknown";
     let name = "Institution", country: "US" | "CA" = "US";
     if (item.item.institution_id) {
-      const { data: inst } = await p.institutionsGetById({ institution_id: instId, country_codes: [CountryCode.Us, CountryCode.Ca] });
+      const { data: inst } = await p.institutionsGetById({ institution_id: instId, country_codes: plaidCountries() });
       name = inst.institution.name;
       country = inst.institution.country_codes.includes(CountryCode.Ca) && !inst.institution.country_codes.includes(CountryCode.Us) ? "CA" : "US";
     }

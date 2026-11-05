@@ -7,7 +7,7 @@
  *   1. drain webhook_logs (Plaid webhooks + internal INITIAL_SYNC jobs) → /transactions/sync, balances, holdings
  *   2. categorize new transactions with the local Ollama model (batched, non-blocking for the UI)
  *   3. re-run anomaly detection for users whose ledgers changed
- *   4. refresh FX rates from the Bank of Canada (twice a day)
+ *   4. refresh FX rates (ECB reference rates via Frankfurter, twice a day)
  *
  * Run a single instance: job claiming is not concurrency-safe across workers.
  */
@@ -80,7 +80,7 @@ async function syncTransactions(item: Item) {
     if (!a) return null;
     return {
       account_id: a.id, user_id: item.user_id, plaid_transaction_id: t.transaction_id,
-      amount: t.amount, iso_currency_code: t.iso_currency_code ?? t.unofficial_currency_code ?? "CAD", date: t.date,
+      amount: t.amount, iso_currency_code: t.iso_currency_code ?? t.unofficial_currency_code ?? "USD", date: t.date,
       raw_merchant_string: t.original_description ?? t.name, is_pending: t.pending,
       // Plaid's merchant name is only a hint; the LLM pass may refine it
       cleaned_merchant_name: t.merchant_name ?? null,
@@ -234,20 +234,17 @@ async function scanAnomalies() {
 }
 
 let lastFx = 0;
+/** USD-based reference rates (European Central Bank, via the free Frankfurter API — no key). */
 async function refreshFx() {
   if (Date.now() - lastFx < 12 * 3600_000) return;
   lastFx = Date.now();
   try {
-    const series = ["FXUSDCAD", "FXEURCAD", "FXGBPCAD"];
-    const res = await fetch(`https://www.bankofcanada.ca/valet/observations/${series.join(",")}/json?recent=1`, { signal: AbortSignal.timeout(8000) });
-    const json = (await res.json()) as { observations: Record<string, { v: string } | string>[] };
-    const obs = json.observations.at(-1)!;
-    const rows = series.flatMap((s) => {
-      const v = Number((obs[s] as { v: string })?.v);
-      return v > 0 ? [{ base: s.slice(2, 5), quote: "CAD", rate: v, as_of: obs.d as string }] : [];
-    });
+    const res = await fetch("https://api.frankfurter.dev/v1/latest?base=USD&symbols=EUR,GBP,CAD", { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = (await res.json()) as { date: string; rates: Record<string, number> };
+    const rows = Object.entries(json.rates).filter(([, v]) => v > 0).map(([quote, rate]) => ({ base: "USD", quote, rate, as_of: json.date }));
     if (rows.length) await db.from("fx_rates").upsert(rows, { onConflict: "base,quote" }).throwOnError();
-    log(`fx: ${rows.map((r) => `${r.base}/CAD ${r.rate}`).join("  ")}`);
+    log(`fx: ${rows.map((r) => `USD/${r.quote} ${r.rate}`).join("  ")} (${json.date})`);
   } catch (e) {
     log("fx refresh failed (keeping last stored rates):", e instanceof Error ? e.message : e);
   }

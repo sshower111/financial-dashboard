@@ -8,7 +8,7 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 import type { Currency } from "@/lib/types";
 import { ConnectBank } from "./ConnectBank";
 
-const BASES: Currency[] = ["CAD", "USD"];
+const BASES: Currency[] = ["USD", "EUR", "GBP"];
 
 function ThemeToggle() {
   const [dark, setDark] = useState<boolean | null>(null);
