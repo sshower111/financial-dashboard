@@ -7,6 +7,7 @@ import { saveBaseCurrency } from "@/lib/persist";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { Currency } from "@/lib/types";
 import { ConnectBank } from "./ConnectBank";
+import { SyncProgress } from "./SyncProgress";
 import { ALL, ownerLabels, scopeAccountIds } from "@/lib/finance/scope";
 
 const BASES: Currency[] = ["USD", "EUR", "GBP"];
@@ -76,6 +77,7 @@ export function TopBar() {
         </div>
       )}
 
+      <SyncProgress />
       <div className="ml-auto flex flex-wrap items-center gap-2">
         <ScopeSelect />
         {editing && (

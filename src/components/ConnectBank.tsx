@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { usePlaidLink } from "react-plaid-link";
 import { Plus } from "lucide-react";
 import { useLedger } from "@/store/ledger";
+import { SYNC_KICK } from "./SyncProgress";
 
 /** Plaid Link (US + CA institutions, transactions + optional investments). */
 export function ConnectBank() {
@@ -15,7 +16,8 @@ export function ConnectBank() {
     setMsg("Linking…");
     const r = await fetch("/api/plaid/exchange", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ public_token }) });
     const j = await r.json();
-    setMsg(r.ok ? `${j.institution}: ${j.accounts} accounts · syncing in background` : j.error);
+    setMsg(r.ok ? `${j.institution}: ${j.accounts} accounts linked` : j.error);
+    if (r.ok) window.dispatchEvent(new Event(SYNC_KICK));
     if (r.ok) useLedger.getState().pushEvent({ kind: "synced", text: `Linked ${j.institution} — worker is importing history` });
     setToken(null);
   }, []);
