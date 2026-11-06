@@ -15,14 +15,19 @@ export function Copilot() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const abort = useRef<AbortController | null>(null);
-  const end = useRef<HTMLDivElement>(null);
-  useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [msgs]);
+  // Follow the stream only while the user is at the bottom; scrolling up detaches until they return.
+  // Scrolls this box only (scrollIntoView would also move the page).
+  const box = useRef<HTMLDivElement>(null);
+  const stick = useRef(true);
+  const onScroll = () => { const el = box.current; if (el) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 32; };
+  useEffect(() => { const el = box.current; if (el && stick.current) el.scrollTop = el.scrollHeight; }, [msgs]);
 
   async function ask(q: string) {
     if (!q.trim() || busy) return;
     const next: Msg[] = [...msgs, { role: "user", content: q.trim() }];
     setMsgs([...next, { role: "assistant", content: "" }]);
     setInput(""); setBusy(true);
+    stick.current = true; // a new question always jumps to the answer
     abort.current = new AbortController();
     try {
       const res = await fetch("/api/copilot", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: next, base, scope }), signal: abort.current.signal });
@@ -42,7 +47,7 @@ export function Copilot() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="scroll-thin min-h-0 flex-1 overflow-auto px-3 py-3">
+      <div ref={box} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-auto px-3 py-3">
         {!msgs.length ? (
           <div className="flex h-full flex-col justify-end gap-2">
             <p className="text-[12px] text-muted">
@@ -65,7 +70,6 @@ export function Copilot() {
                 </div>
               </div>
             ))}
-            <div ref={end} />
           </div>
         )}
       </div>
