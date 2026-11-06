@@ -44,7 +44,7 @@ export function Forecast() {
             {upcoming.map((e, i) => (
               <tr key={i}>
                 <td className="num w-16 whitespace-nowrap text-muted">{shortDate(e.date)}</td>
-                <td className="truncate" title={e.label}>{e.label}</td>
+                <td className="wrap" title={e.label}>{e.label}</td>
                 <td className="r w-24"><Money value={e.amount} sign accent={e.kind === "liability"} /></td>
               </tr>
             ))}

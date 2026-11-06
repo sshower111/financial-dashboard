@@ -25,7 +25,7 @@ export function Spending() {
           return (
             <tr key={r.category}>
               <td className="max-w-0">
-                <div className="truncate">{r.category}</div>
+                <div className="wrap">{r.category}</div>
                 <div className="relative mt-1 h-1 bg-sunk">
                   <div className="absolute inset-y-0 left-0 bg-ink" style={{ width: `${(r.amount / max) * 100}%` }} />
                   <div className="absolute -top-0.5 -bottom-0.5 w-px bg-muted" style={{ left: `${(r.prev / max) * 100}%` }} title="Prior 30 days" />

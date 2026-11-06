@@ -39,10 +39,10 @@ export function Feed() {
       <ol className="num shrink-0 border-b border-line bg-sunk px-3 py-1.5 text-[11px] text-ink-2" aria-live="polite" aria-label="Pipeline events">
         <AnimatePresence initial={false}>
           {events.slice(0, 3).map((e) => (
-            <motion.li key={e.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }} className="flex gap-3 truncate">
+            <motion.li key={e.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }} className="flex gap-3 wrap">
               <span className="text-muted">{clock(e.at)}</span>
               <span className={`w-20 shrink-0 ${e.kind === "flagged" ? "text-accent" : ""}`}>{e.kind}</span>
-              <span className="truncate font-sans">{e.text}</span>
+              <span className="wrap font-sans">{e.text}</span>
             </motion.li>
           ))}
         </AnimatePresence>
@@ -73,21 +73,21 @@ export function Feed() {
                     <td className="max-w-0">
                       <div className="flex items-center gap-2">
                         {anomaly && <span className="h-1.5 w-1.5 shrink-0 bg-accent" title="Flagged by anomaly scan" />}
-                        <span className="truncate">{t.cleaned_merchant_name ?? t.raw_merchant_string}</span>
+                        <span className="wrap">{t.cleaned_merchant_name ?? t.raw_merchant_string}</span>
                         {t.is_pending && <span className="label shrink-0">pending</span>}
                       </div>
                       {(queued || t.cleaned_merchant_name !== t.raw_merchant_string) && (
-                        <div className="num truncate text-[11px] text-muted">{t.raw_merchant_string}</div>
+                        <div className="num wrap text-[11px] text-muted">{t.raw_merchant_string}</div>
                       )}
                     </td>
-                    <td className="hidden truncate text-ink-2 lg:table-cell">
+                    <td className="hidden wrap text-ink-2 lg:table-cell">
                       {queued ? <span className="num text-[11px] text-muted">queued for AI…</span> : (
                         <span>{t.category}{t.subcategory ? <span className="text-muted"> · {t.subcategory}</span> : null}
                           {t.ai_confidence_score != null && <span className="num ml-2 text-[11px] text-muted">{t.ai_confidence_score.toFixed(2)}</span>}
                         </span>
                       )}
                     </td>
-                    <td className="hidden truncate text-muted xl:table-cell">{acct.get(t.account_id)}</td>
+                    <td className="hidden wrap text-muted xl:table-cell">{acct.get(t.account_id)}</td>
                     <td className="r"><Money value={-t.amount} ccy={t.iso_currency_code} sign /></td>
                   </motion.tr>
                 );

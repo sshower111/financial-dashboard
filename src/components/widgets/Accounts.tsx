@@ -54,9 +54,9 @@ export function Accounts() {
               const util = liab && a.limit_amount ? (a.current_balance ?? 0) / a.limit_amount : null;
               return (
                 <tr key={a.id}>
-                  <td className="max-w-0"><div className="truncate">{a.name}</div>{util != null && <div className={`num text-[11px] ${util > 0.3 ? "text-accent" : "text-muted"}`}>{(util * 100).toFixed(0)}% utilized</div>}
+                  <td className="max-w-0"><div className="wrap">{a.name}</div>{util != null && <div className={`num text-[11px] ${util > 0.3 ? "text-accent" : "text-muted"}`}>{(util * 100).toFixed(0)}% utilized</div>}
                     {editing ? <OwnerField key={a.owner_label ?? ""} a={a} labels={labels} /> : a.owner_label && labels.length > 1 && <div className="text-[11px] text-muted">{a.owner_label}</div>}</td>
-                  <td className="hidden truncate text-muted sm:table-cell">{inst.get(a.institution_id)?.name} <span className="num text-[11px]">{inst.get(a.institution_id)?.country}</span></td>
+                  <td className="hidden wrap text-muted sm:table-cell">{inst.get(a.institution_id)?.name} <span className="num text-[11px]">{inst.get(a.institution_id)?.country}</span></td>
                   <td className="r"><Money value={bal} ccy={a.currency} /></td>
                   <td className="r">{rate ? <Money value={bal * rate} /> : <span className="text-accent">no rate</span>}</td>
                 </tr>

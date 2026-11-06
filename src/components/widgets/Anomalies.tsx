@@ -22,8 +22,8 @@ export function Anomalies() {
           <li key={`${a.transactionId}-${a.kind}`} className="grid grid-cols-[auto_1fr_auto] gap-x-3 border-b border-line px-3 py-2.5 last:border-0">
             <span className={`num mt-0.5 text-[11px] ${a.severity === 3 ? "text-accent" : "text-muted"}`}>{"■".repeat(a.severity)}<span className="opacity-25">{"■".repeat(3 - a.severity)}</span></span>
             <div className="min-w-0">
-              <div className="truncate">{a.title.split(" · ")[1] ?? a.title}</div>
-              <div className="truncate text-[12px] text-muted"><span className="text-ink-2">{KIND[a.kind]}</span> · {a.detail}</div>
+              <div className="wrap">{a.title.split(" · ")[1] ?? a.title}</div>
+              <div className="wrap text-[12px] text-muted"><span className="text-ink-2">{KIND[a.kind]}</span> · {a.detail}</div>
             </div>
             <div className="text-right">
               <Money value={a.amount} ccy={a.currency} />

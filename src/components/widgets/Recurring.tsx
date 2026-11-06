@@ -16,7 +16,7 @@ export function Recurring() {
         {streams.map((s) => (
           <tr key={s.key}>
             <td className="num w-14 text-muted">{shortDate(s.nextDate)}</td>
-            <td className="max-w-0"><div className="truncate">{s.merchant}</div><div className="text-[11px] text-muted">{cadence(s.cadenceDays)}</div></td>
+            <td className="max-w-0"><div className="wrap">{s.merchant}</div><div className="text-[11px] text-muted">{cadence(s.cadenceDays)}</div></td>
             <td className="r"><Money value={s.direction === "in" ? s.amount : -s.lastAmount} ccy={s.currency} sign /></td>
           </tr>
         ))}
