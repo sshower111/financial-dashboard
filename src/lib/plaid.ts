@@ -1,4 +1,5 @@
 import { Configuration, CountryCode, PlaidApi, PlaidEnvironments } from "plaid";
+import { guessDashboard } from "./finance/scope.ts";
 
 let api: PlaidApi | null = null;
 export function plaid(): PlaidApi {
@@ -21,3 +22,20 @@ export function plaidCountries(): CountryCode[] {
 
 export const SUPPORTED_CCY = new Set(["USD", "EUR", "GBP", "CAD"]);
 export const ACCOUNT_TYPES = new Set(["depository", "credit", "investment", "loan"]);
+
+/**
+ * Put newly linked accounts on a dashboard: Business when Plaid's holder_category (or the account
+ * name) says business, else Personal. Only touches accounts without one, so manual moves stick.
+ */
+export async function assignDashboards(
+  db: { from: (t: string) => any }, // eslint-disable-line @typescript-eslint/no-explicit-any -- service-role SupabaseClient
+  accounts: { account_id: string; name: string; official_name?: string | null; holder_category?: string | null }[],
+) {
+  const byDash = new Map<string, string[]>();
+  for (const a of accounts) {
+    const d = guessDashboard(a);
+    (byDash.get(d) ?? byDash.set(d, []).get(d)!).push(a.account_id);
+  }
+  for (const [dashboard, ids] of byDash)
+    await db.from("accounts").update({ owner_label: dashboard }).in("plaid_account_id", ids).is("owner_label", null).throwOnError();
+}

@@ -8,7 +8,7 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 import type { Currency } from "@/lib/types";
 import { ConnectBank } from "./ConnectBank";
 import { SyncProgress } from "./SyncProgress";
-import { ALL, ownerLabels, scopeAccountIds } from "@/lib/finance/scope";
+import { DashboardTabs } from "./DashboardTabs";
 
 const BASES: Currency[] = ["USD", "EUR", "GBP"];
 
@@ -27,31 +27,6 @@ function ThemeToggle() {
   return <button onClick={flip} className="grid h-7 w-7 place-items-center border border-line text-ink-2 hover:text-ink" title="Toggle theme" aria-label="Toggle theme">{dark ? <Sun size={13} /> : <Moon size={13} />}</button>;
 }
 
-/** Scope switcher: filters every panel (and the assistant) to a person, institution or account. */
-function ScopeSelect() {
-  const data = useLedger((s) => s.data);
-  const scope = useLedger((s) => s.scope);
-  if (!data || data.accounts.length < 2) return null;
-  const value = scopeAccountIds(data.accounts, scope) ? scope : ALL;
-  const people = ownerLabels(data.accounts);
-  const insts = data.institutions.filter((i) => data.accounts.some((a) => a.institution_id === i.id));
-  const active = value !== ALL;
-  return (
-    <select value={value} onChange={(e) => useLedger.getState().setScope(e.target.value)} aria-label="Show accounts"
-      title="Filter the whole dashboard"
-      className={`h-7 max-w-[14rem] border bg-bg px-1.5 text-[12px] ${active ? "border-accent text-accent" : "border-line hover:border-ink"}`}>
-      <option value={ALL}>All accounts</option>
-      {people.length > 0 && <optgroup label="People">{people.map((p) => <option key={p} value={`person:${p}`}>{p}</option>)}</optgroup>}
-      {insts.length > 1 && <optgroup label="Institutions">{insts.map((i) => <option key={i.id} value={`inst:${i.id}`}>{i.name}</option>)}</optgroup>}
-      {insts.map((i) => (
-        <optgroup key={i.id} label={i.name}>
-          {data.accounts.filter((a) => a.institution_id === i.id).map((a) => <option key={a.id} value={`acct:${a.id}`}>{a.name}</option>)}
-        </optgroup>
-      ))}
-    </select>
-  );
-}
-
 export function TopBar() {
   const { base, demo, ai, editing, layout } = useLedger();
   const s = useLedger.getState();
@@ -59,8 +34,9 @@ export function TopBar() {
 
   return (
     <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line py-3">
-      <div className="flex items-baseline gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <span className="text-[15px] font-semibold tracking-tight">Financial Dashboard</span>
+        <DashboardTabs />
         {demo && <span className="border border-line px-1.5 text-[11px] text-muted">demo data</span>}
       </div>
       {demo && ai.up === false ? (
@@ -79,7 +55,6 @@ export function TopBar() {
 
       <SyncProgress />
       <div className="ml-auto flex flex-wrap items-center gap-2">
-        <ScopeSelect />
         {editing && (
           <>
             {hidden.length > 0 && (

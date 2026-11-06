@@ -22,8 +22,8 @@ The owner works on **Windows PowerShell 5.1**: `&&` doesn't work there. Give com
 - `worker/index.ts`: queue = `webhook_logs` (processed=false, backoff by `attempts`). Run **one** instance only.
 - `src/components/LiveSync.tsx`: initial load, Realtime subscription (sets the JWT with `realtime.setAuth` **before** subscribing; otherwise RLS silently drops events), the demo simulator, and layout persistence.
 - `src/lib/demo.ts`: deterministic US demo ledger (seeded per calendar day). `engine.test.ts` asserts on its merchant names.
-- `supabase/migrations/`: 0001 init, 0002 USD defaults (applied to the live project), 0003 `accounts.owner_label` (check whether applied).
-- `src/lib/finance/scope.ts` + `useScopedData()` in `src/store/derived.ts`: the account/person switcher. Panels read scoped data, never `s.data` directly (budgets excepted); `/api/copilot` applies the same `scopeLedger`.
+- `supabase/migrations/`: 0001 init, 0002 USD defaults, 0003 `accounts.owner_label` (applied to the live project), 0004 dashboards (check whether applied).
+- **Dashboards** (`src/lib/finance/scope.ts`, `DashboardTabs.tsx`): separate dashboards (Personal / Business / user-added), no combined view. Stable id in `accounts.owner_label`, `budgets.dashboard`, `dashboard_layouts.dashboard`; names in `user_settings.dashboards` (rename = settings only). `useScopedData()` in `src/store/derived.ts` is the only filter: panels never read `s.data` for accounts/transactions; `/api/copilot` applies the same `scopeLedger`. New Plaid accounts are placed by `assignDashboards()` (holder_category, then name).
 
 ## Conventions
 

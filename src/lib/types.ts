@@ -57,6 +57,8 @@ export interface Budget {
   category: string;
   monthly_limit: number;
   currency: Currency;
+  /** dashboard this budget belongs to (migration 0004) */
+  dashboard?: string;
 }
 
 /** rates[X] = units of base currency per 1 X. rates[base] = 1. */

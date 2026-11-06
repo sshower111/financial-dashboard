@@ -91,28 +91,35 @@ test("cash flow delta excludes transfers", () => {
   assert.ok(d.current.inflow > 0 && d.current.outflow > 0);
 });
 
-test("scope: institution / account / person filter accounts, transactions and holdings together", async () => {
-  const { scopeLedger, scopeAccountIds, ownerLabels } = await import("./scope.ts");
+test("dashboards: each shows only its own accounts, transactions, holdings and budgets", async () => {
+  const { scopeLedger, dashboardList, dashboardName, guessDashboard, DEFAULT_DASHBOARDS } = await import("./scope.ts");
   const { demoHoldings } = await import("../demo.ts");
-  const d = { accounts: demoAccounts, transactions: demoTransactions(), holdings: demoHoldings };
+  const budgets = [...demoBudgets, { id: "b-biz", category: "Travel", monthly_limit: 900, currency: "USD" as const, dashboard: "business" }];
+  const d = { accounts: demoAccounts, transactions: demoTransactions(), holdings: demoHoldings, budgets };
 
-  assert.equal(scopeLedger(d, "all"), d);
-  assert.equal(scopeAccountIds(d.accounts, "acct:does-not-exist"), null, "stale scope falls back to all");
+  const biz = scopeLedger(d, "business");
+  assert.deepEqual(biz.accounts.map((a) => a.id).sort(), ["acc-amex", "acc-schwab"]);
+  assert.ok(biz.transactions.length > 0 && biz.transactions.every((t) => t.account_id === "acc-amex" || t.account_id === "acc-schwab"));
+  assert.ok(biz.holdings.length > 0 && biz.holdings.every((h) => h.account_id === "acc-schwab"));
+  assert.deepEqual(biz.budgets.map((b) => b.id), ["b-biz"]);
 
-  const chase = scopeLedger(d, "inst:ins-chase");
-  assert.ok(chase.accounts.length >= 2 && chase.accounts.every((a) => a.institution_id === "ins-chase"));
-  const ids = new Set(chase.accounts.map((a) => a.id));
-  assert.ok(chase.transactions.length > 0 && chase.transactions.every((t) => ids.has(t.account_id)));
-  assert.equal(chase.holdings.length, 0);
+  const personal = scopeLedger(d, "personal");
+  assert.equal(personal.accounts.length + biz.accounts.length, demoAccounts.length, "every account is on exactly one dashboard");
+  assert.equal(personal.budgets.length, demoBudgets.length, "budgets without a dashboard are Personal");
+  assert.ok(!personal.transactions.some((t) => t.account_id === "acc-amex"));
 
-  const one = scopeLedger(d, "acct:acc-amex");
-  assert.deepEqual(one.accounts.map((a) => a.id), ["acc-amex"]);
-  assert.ok(one.transactions.every((t) => t.account_id === "acc-amex"));
+  // unassigned accounts are Personal; ids on accounts but missing from the saved list still get a tab
+  const loose = [{ ...demoAccounts[0], owner_label: null }, { ...demoAccounts[1], owner_label: "d-x" }];
+  assert.equal(scopeLedger({ ...d, accounts: loose }, "personal").accounts.length, 1);
+  assert.deepEqual(dashboardList(null, loose).map((x) => x.id), ["personal", "business", "d-x"]);
+  // renaming only changes the name, never the id the data hangs off
+  const renamed = DEFAULT_DASHBOARDS.map((x) => (x.id === "business" ? { ...x, name: "Acme Bakery" } : x));
+  assert.equal(dashboardName(renamed, "business"), "Acme Bakery");
+  assert.equal(scopeLedger(d, "business").accounts.length, 2);
 
-  assert.deepEqual(ownerLabels(d.accounts), ["Me", "Partner"]);
-  const partner = scopeLedger(d, "person:Partner");
-  assert.deepEqual(partner.accounts.map((a) => a.id).sort(), ["acc-amex", "acc-schwab"]);
-  assert.ok(partner.holdings.every((h) => h.account_id === "acc-schwab"));
+  assert.equal(guessDashboard({ name: "BUS COMPLETE CHK" }), "business");
+  assert.equal(guessDashboard({ name: "TOTAL CHECKING" }), "personal");
+  assert.equal(guessDashboard({ name: "Ultimate Rewards", holder_category: "business" }), "business");
 });
 
 test("transfers: a card payment counts once as neither spending nor income, both legs excluded", async () => {

@@ -6,12 +6,12 @@
  *  - demo mode: a simulator that streams raw bank strings through /api/categorize
  */
 import { useEffect, useRef } from "react";
-import { SCOPE_KEY, useLedger } from "@/store/ledger";
+import { DASHBOARD_KEY, useLedger } from "@/store/ledger";
 import { DEMO_MODE } from "@/lib/env";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { demoLedger, loadLedger } from "@/lib/ledger-load";
 import { LIVE_SAMPLES, demoBudgets } from "@/lib/demo";
-import { loadDemoBudgets, loadDemoOwners, loadLayout, saveLayout } from "@/lib/persist";
+import { loadDemoBudgets, loadDemoDashboards, loadDemoOwners, loadLayout, saveLayout } from "@/lib/persist";
 import { DEFAULT_LAYOUT, sanitizeLayout } from "@/lib/layout";
 import { detectAnomalies } from "@/lib/finance/anomaly";
 import { todayKey } from "@/lib/finance/dates";
@@ -34,13 +34,13 @@ export function LiveSync() {
         if (DEMO_MODE) {
           const d = demoLedger();
           const owners = loadDemoOwners() ?? {};
-          s.setData({ ...d, budgets: loadDemoBudgets() ?? demoBudgets, accounts: d.accounts.map((a) => (a.id in owners ? { ...a, owner_label: owners[a.id] } : a)) });
+          s.setData({ ...d, budgets: loadDemoBudgets() ?? demoBudgets, dashboards: loadDemoDashboards() ?? d.dashboards, accounts: d.accounts.map((a) => (a.id in owners ? { ...a, owner_label: owners[a.id] } : a)) });
         } else {
           s.setData(await loadLedger(supabaseBrowser()));
         }
-        // restore the per-browser scope; a stale one (account removed) just resolves to "all"
-        try { const sc = localStorage.getItem(SCOPE_KEY); if (sc) useLedger.setState({ scope: sc }); } catch { /* private mode */ }
-        const stored = await loadLayout().catch(() => null);
+        // reopen the dashboard this browser had open last
+        try { const dash = localStorage.getItem(DASHBOARD_KEY); if (dash) useLedger.setState({ dashboard: dash }); } catch { /* private mode */ }
+        const stored = await loadLayout(useLedger.getState().dashboard).catch(() => null);
         s.setLayout(stored == null ? DEFAULT_LAYOUT : sanitizeLayout(stored));
       } catch (e) {
         s.setError(e instanceof Error ? e.message : String(e));
@@ -51,13 +51,23 @@ export function LiveSync() {
     fetch("/api/health").then((r) => r.json()).then((h) => s.setAi(Boolean(h.ollama), h.model)).catch(() => s.setAi(false, ""));
   }, []);
 
-  // persist layout (debounced) once the stored one has been applied
+  // each dashboard has its own layout: load it on switch, persist edits (debounced) under that dashboard
   useEffect(() => {
     let t: ReturnType<typeof setTimeout>;
     return useLedger.subscribe((st, prev) => {
+      if (st.dashboard !== prev.dashboard && layoutLoaded.current) {
+        layoutLoaded.current = false;
+        const dash = st.dashboard;
+        loadLayout(dash).catch(() => null).then((stored) => {
+          if (useLedger.getState().dashboard === dash) st.setLayout(stored == null ? DEFAULT_LAYOUT : sanitizeLayout(stored));
+          layoutLoaded.current = true;
+        });
+        return;
+      }
       if (!layoutLoaded.current || st.layout === prev.layout) return;
       clearTimeout(t);
-      t = setTimeout(() => saveLayout(st.layout).catch(() => {}), 400);
+      const dash = st.dashboard, layout = st.layout;
+      t = setTimeout(() => saveLayout(dash, layout).catch(() => {}), 400);
     });
   }, []);
 

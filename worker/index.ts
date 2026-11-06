@@ -16,7 +16,7 @@ import { existsSync } from "node:fs";
 for (const f of [".env.local", ".env"]) if (existsSync(f)) loadEnvFile(f);
 
 const { supabaseAdmin } = await import("../src/lib/supabase/admin.ts");
-const { plaid, ACCOUNT_TYPES, SUPPORTED_CCY } = await import("../src/lib/plaid.ts");
+const { plaid, assignDashboards, ACCOUNT_TYPES, SUPPORTED_CCY } = await import("../src/lib/plaid.ts");
 const { categorizeWithLLM, categorizeWithRules } = await import("../src/lib/ai/categorize.ts");
 const { cacheKey } = await import("../src/lib/ai/merchant.ts");
 const { hasModel, ollamaModels, OLLAMA_CATEGORIZE_MODEL, OLLAMA_MODEL, OLLAMA_URL } = await import("../src/lib/ai/ollama.ts");
@@ -47,7 +47,10 @@ async function refreshAccounts(item: Item) {
     currency: a.balances.iso_currency_code ?? a.balances.unofficial_currency_code ?? (item.country === "CA" ? "CAD" : "USD"),
     current_balance: a.balances.current, available_balance: a.balances.available, limit_amount: a.balances.limit,
   })).filter((a) => SUPPORTED_CCY.has(a.currency));
-  if (rows.length) await db.from("accounts").upsert(rows, { onConflict: "plaid_account_id" }).throwOnError();
+  if (rows.length) {
+    await db.from("accounts").upsert(rows, { onConflict: "plaid_account_id" }).throwOnError();
+    await assignDashboards(db, data.accounts);
+  }
   return rows;
 }
 

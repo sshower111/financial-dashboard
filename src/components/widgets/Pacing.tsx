@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Plus, X } from "lucide-react";
 import { useDerived } from "@/store/derived";
 import { useLedger } from "@/store/ledger";
+import { DEFAULT_DASHBOARD } from "@/lib/finance/scope";
 import { CATEGORIES, type Budget } from "@/lib/types";
 import { money, pct } from "@/lib/format";
 import { saveBudget, deleteBudget } from "@/lib/persist";
@@ -19,17 +20,19 @@ function Bar({ used, progress, over }: { used: number; progress: number; over: b
 export function Pacing() {
   const d = useDerived();
   const data = useLedger((s) => s.data);
+  const dashboard = useLedger((s) => s.dashboard);
   const [adding, setAdding] = useState(false);
   const [cat, setCat] = useState<string>("Dining");
   const [limit, setLimit] = useState("");
   if (!d || !data) return null;
   const p = d.pacing;
-  const unused = CATEGORIES.filter((c) => c !== "Income" && c !== "Transfer" && !data.budgets.some((b) => b.category === c));
+  const mine = data.budgets.filter((b) => (b.dashboard ?? DEFAULT_DASHBOARD) === dashboard);
+  const unused = CATEGORIES.filter((c) => c !== "Income" && c !== "Transfer" && !mine.some((b) => b.category === c));
 
   async function add() {
     const v = Number(limit);
     if (!(v > 0)) return;
-    const b: Budget = { id: crypto.randomUUID(), category: cat, monthly_limit: v, currency: d!.base };
+    const b: Budget = { id: crypto.randomUUID(), category: cat, monthly_limit: v, currency: d!.base, dashboard };
     await saveBudget(b);
     useLedger.getState().setBudgets([...data!.budgets, b]);
     setAdding(false); setLimit("");
@@ -46,7 +49,7 @@ export function Pacing() {
         <thead><tr><th>Category</th><th className="w-[30%]" /><th className="r">Spent / limit</th><th className="r">Pace</th><th className="w-6" /></tr></thead>
         <tbody>
           {p.rows.map((r) => {
-            const b = data.budgets.find((x) => x.category === r.category)!;
+            const b = mine.find((x) => x.category === r.category)!;
             return (
               <tr key={r.category} className="group">
                 <td>{r.category}</td>

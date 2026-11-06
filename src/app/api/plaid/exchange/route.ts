@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { CountryCode } from "plaid";
-import { ACCOUNT_TYPES, SUPPORTED_CCY, plaid, plaidCountries } from "@/lib/plaid";
+import { ACCOUNT_TYPES, SUPPORTED_CCY, assignDashboards, plaid, plaidCountries } from "@/lib/plaid";
 import { requireUser } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
@@ -39,6 +39,7 @@ export async function POST(req: Request) {
     if (rows.length) {
       const { error: e2 } = await db.from("accounts").upsert(rows, { onConflict: "plaid_account_id" });
       if (e2) throw e2;
+      await assignDashboards(db, acc.accounts);
     }
     await db.from("webhook_logs").insert({ webhook_type: "INTERNAL", webhook_code: "INITIAL_SYNC", payload: { item_id: ex.item_id } });
     return NextResponse.json({ ok: true, institution: name, accounts: rows.length });

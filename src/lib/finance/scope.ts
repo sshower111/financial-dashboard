@@ -1,48 +1,50 @@
-import type { Account, Holding, Institution, Transaction } from "../types.ts";
+import type { Account, Budget, Holding, Transaction } from "../types.ts";
 
 /**
- * Dashboard scope, encoded as a string so it fits a <select> value and localStorage:
- *   "all" | "inst:<institution id>" | "acct:<account id>" | "person:<owner label>"
+ * Separate dashboards (e.g. "Personal", "Business", "Rental property"). Each has a stable id and a
+ * user-editable name (user_settings.dashboards). Every account belongs to exactly one dashboard via
+ * accounts.owner_label = dashboard id; unassigned accounts are on "personal". Budgets and the panel
+ * layout are per dashboard too. There is no combined view.
  */
-export type Scope = string;
-export const ALL: Scope = "all";
+export interface Dashboard { id: string; name: string }
 
-/** Account ids in scope, or null for "everything" (also when the scope no longer matches anything). */
-export function scopeAccountIds(accounts: Account[], scope: Scope): Set<string> | null {
-  const i = scope.indexOf(":");
-  if (scope === ALL || i < 0) return null;
-  const kind = scope.slice(0, i), key = scope.slice(i + 1);
-  const pick = accounts.filter((a) =>
-    kind === "inst" ? a.institution_id === key :
-    kind === "acct" ? a.id === key :
-    kind === "person" ? (a.owner_label ?? null) === key : false);
-  return pick.length ? new Set(pick.map((a) => a.id)) : null;
+export const DEFAULT_DASHBOARD = "personal";
+export const BUSINESS_DASHBOARD = "business";
+export const DEFAULT_DASHBOARDS: Dashboard[] = [
+  { id: DEFAULT_DASHBOARD, name: "Personal" },
+  { id: BUSINESS_DASHBOARD, name: "Business" },
+];
+
+export const dashboardOf = (a: Pick<Account, "owner_label">) => a.owner_label?.trim() || DEFAULT_DASHBOARD;
+
+/** Saved dashboards (or the defaults), plus any id found on an account but missing from the list. */
+export function dashboardList(saved: Dashboard[] | null | undefined, accounts: Account[]): Dashboard[] {
+  const out = (saved?.length ? saved : DEFAULT_DASHBOARDS).filter((d) => d && typeof d.id === "string" && d.id);
+  for (const id of accounts.map(dashboardOf)) if (!out.some((d) => d.id === id)) out.push({ id, name: id });
+  return out;
 }
 
-interface Scopable { accounts: Account[]; transactions: Transaction[]; holdings: Holding[] }
+export const dashboardName = (list: Dashboard[], id: string) => list.find((d) => d.id === id)?.name ?? id;
 
-/** Keep only accounts / transactions / holdings belonging to `ids` (null = unchanged). */
-export function filterByAccounts<T extends Scopable>(d: T, ids: Set<string> | null): T {
-  if (!ids) return d;
+export const newDashboardId = () => `d-${Math.random().toString(36).slice(2, 10)}`;
+
+/** Guess for a newly linked account: Plaid's holder_category, else the bank's account name. */
+export function guessDashboard(a: { name: string; official_name?: string | null; holder_category?: string | null }): string {
+  if (a.holder_category === "business") return BUSINESS_DASHBOARD;
+  if (a.holder_category === "personal") return DEFAULT_DASHBOARD;
+  return /\b(bus|business|biz|corp|inc|llc|ltd)\b/i.test(`${a.name} ${a.official_name ?? ""}`) ? BUSINESS_DASHBOARD : DEFAULT_DASHBOARD;
+}
+
+interface Scopable { accounts: Account[]; transactions: Transaction[]; holdings: Holding[]; budgets: Budget[] }
+
+/** The ledger as seen from one dashboard. */
+export function scopeLedger<T extends Scopable>(d: T, dashboard: string): T {
+  const ids = new Set(d.accounts.filter((a) => dashboardOf(a) === dashboard).map((a) => a.id));
   return {
     ...d,
     accounts: d.accounts.filter((a) => ids.has(a.id)),
     transactions: d.transactions.filter((t) => ids.has(t.account_id)),
     holdings: d.holdings.filter((h) => ids.has(h.account_id)),
+    budgets: d.budgets.filter((b) => (b.dashboard ?? DEFAULT_DASHBOARD) === dashboard),
   };
-}
-
-export const scopeLedger = <T extends Scopable>(d: T, scope: Scope): T => filterByAccounts(d, scopeAccountIds(d.accounts, scope));
-
-/** Distinct person labels, sorted. */
-export const ownerLabels = (accounts: Account[]) =>
-  [...new Set(accounts.map((a) => a.owner_label).filter((x): x is string => !!x))].sort();
-
-/** Human label for the current scope (used in the assistant context). */
-export function scopeName(scope: Scope, accounts: Account[], institutions: Institution[]): string {
-  if (!scopeAccountIds(accounts, scope)) return "All accounts";
-  const [kind, key] = [scope.slice(0, scope.indexOf(":")), scope.slice(scope.indexOf(":") + 1)];
-  if (kind === "inst") return institutions.find((i) => i.id === key)?.name ?? key;
-  if (kind === "acct") return accounts.find((a) => a.id === key)?.name ?? key;
-  return key;
 }

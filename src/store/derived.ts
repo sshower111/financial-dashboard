@@ -10,13 +10,13 @@ import { budgetPacing } from "@/lib/finance/pacing";
 import { scopeLedger } from "@/lib/finance/scope";
 import { markTransfers } from "@/lib/finance/transfers";
 
-/** The ledger narrowed to the selected scope (All / institution / account / person). Every panel reads this. */
+/** The ledger as seen from the open dashboard (its accounts, transactions, holdings, budgets). Every panel reads this. */
 export function useScopedData() {
   const data = useLedger((s) => s.data);
-  const scope = useLedger((s) => s.scope);
+  const dashboard = useLedger((s) => s.dashboard);
   // transfer pairing spans accounts, so it runs on the full ledger before scoping
   const marked = useMemo(() => (data ? markTransfers(data) : null), [data]);
-  return useMemo(() => (marked ? scopeLedger(marked, scope) : null), [marked, scope]);
+  return useMemo(() => (marked ? scopeLedger(marked, dashboard) : null), [marked, dashboard]);
 }
 
 /** All derived figures, memoized on the raw ledger + base currency. */

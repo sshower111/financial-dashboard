@@ -10,13 +10,12 @@ import { Empty } from "../Panel";
 export function Feed() {
   const data = useScopedData();
   const allEvents = useLedger((s) => s.events);
-  const scope = useLedger((s) => s.scope);
-  // pipeline events tied to a transaction follow the scope; general events (sync notices) always show
+  // pipeline events tied to a transaction show on that transaction's dashboard; general events everywhere
   const events = useMemo(() => {
-    if (scope === "all" || !data) return allEvents;
+    if (!data) return allEvents;
     const ids = new Set(data.transactions.map((t) => t.id));
     return allEvents.filter((e) => !e.txnId || ids.has(e.txnId));
-  }, [allEvents, scope, data]);
+  }, [allEvents, data]);
   const d = useDerived();
   const flagged = useMemo(() => new Set(d?.anomalies.map((a) => a.transactionId)), [d]);
   const acct = useMemo(() => new Map(data?.accounts.map((a) => [a.id, a.name])), [data]);

@@ -2,6 +2,7 @@
 import { create } from "zustand";
 import type { Budget, Currency, Transaction } from "@/lib/types";
 import type { LedgerData } from "@/lib/ledger-load";
+import type { Dashboard } from "@/lib/finance/scope";
 import { DEFAULT_LAYOUT, sanitizeLayout, type LayoutItem, type WidgetId } from "@/lib/layout";
 
 export type FeedEventKind = "ingested" | "categorized" | "flagged" | "synced";
@@ -19,8 +20,8 @@ interface State {
   ai: { up: boolean | null; model: string };
   /** ids whose row should animate in */
   fresh: Set<string>;
-  /** dashboard filter: see lib/finance/scope.ts (persisted per browser) */
-  scope: string;
+  /** id of the open dashboard: see lib/finance/scope.ts (remembered per browser) */
+  dashboard: string;
 
   setData: (d: LedgerData) => void;
   setError: (e: string) => void;
@@ -30,7 +31,9 @@ interface State {
   removeTxn: (id: string) => void;
   patchAccountBalance: (accountId: string, delta: number) => void;
   setBudgets: (b: Budget[]) => void;
-  setScope: (scope: string) => void;
+  setDashboard: (id: string) => void;
+  /** replace the dashboard list (names / order); caller persists it */
+  setDashboards: (list: Dashboard[]) => void;
   setOwnerLabel: (accountId: string, label: string | null) => void;
   pushEvent: (e: Omit<FeedEvent, "id" | "at"> & { at?: string }) => void;
 
@@ -44,7 +47,7 @@ interface State {
 }
 
 let evSeq = 0;
-export const SCOPE_KEY = "ledger.scope.v1";
+export const DASHBOARD_KEY = "ledger.dashboard.v2";
 
 export const useLedger = create<State>((set) => ({
   status: "loading",
@@ -56,7 +59,7 @@ export const useLedger = create<State>((set) => ({
   events: [],
   ai: { up: null, model: "" },
   fresh: new Set(),
-  scope: "all",
+  dashboard: "personal",
 
   setData: (data) => set({ data, status: "ready", base: data.base }),
   setError: (error) => set({ status: "error", error }),
@@ -86,7 +89,8 @@ export const useLedger = create<State>((set) => ({
       return { ...a, current_balance: Math.round((a.current_balance + d) * 100) / 100, available_balance: a.available_balance == null ? null : Math.round((a.available_balance - delta) * 100) / 100 };
     }) } };
   }),
-  setScope: (scope) => { try { localStorage.setItem(SCOPE_KEY, scope); } catch { /* private mode */ } set({ scope }); },
+  setDashboard: (dashboard) => { try { localStorage.setItem(DASHBOARD_KEY, dashboard); } catch { /* private mode */ } set({ dashboard }); },
+  setDashboards: (dashboards) => set((s) => (s.data ? { data: { ...s.data, dashboards } } : s)),
   setOwnerLabel: (accountId, label) => set((s) => (s.data ? { data: { ...s.data, accounts: s.data.accounts.map((a) => (a.id === accountId ? { ...a, owner_label: label } : a)) } } : s)),
   setBudgets: (budgets) => set((s) => (s.data ? { data: { ...s.data, budgets } } : s)),
   pushEvent: (e) => set((s) => ({ events: [{ ...e, id: `ev-${++evSeq}`, at: e.at ?? new Date().toISOString() }, ...s.events].slice(0, 60) })),
