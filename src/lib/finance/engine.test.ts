@@ -142,3 +142,40 @@ test("transfers: a card payment counts once as neither spending nor income, both
   assert.deepEqual(spendByCategory(marked, fx, "2026-10-01", "2026-10-31"), [{ category: "Shopping", amount: 900 }]);
   assert.equal(txns[0].category, "Utilities", "input is not mutated");
 });
+
+test("merchant cache key: strips store numbers, hashes and prefixes; splits in/out", async () => {
+  const { merchantKey, cacheKey } = await import("../ai/merchant.ts");
+  assert.equal(merchantKey("SQ *BLUE BOTTLE COFFEE 4821"), "BLUE BOTTLE COFFEE");
+  assert.equal(merchantKey("SQ *BLUE BOTTLE COFFEE 9902"), merchantKey("SQ *BLUE BOTTLE COFFEE 4821"));
+  assert.equal(merchantKey("AMZN Mktp US*7Q1M02 AMZN.COM/BILL"), merchantKey("AMZN Mktp US*2K9XZ1 AMZN.COM/BILL"));
+  assert.equal(merchantKey("TRADER JOE'S #552 BROOKLYN NY"), "TRADER JOES BROOKLYN NY");
+  assert.equal(merchantKey("TST* LUCALI 00012 BROOKLYN"), "LUCALI BROOKLYN");
+  assert.equal(merchantKey("Café Einstein"), "CAFE EINSTEIN");
+  assert.equal(merchantKey("12345 678"), "", "nothing stable left → no key");
+  assert.notEqual(cacheKey("u1", "AMAZON", 20), cacheKey("u1", "AMAZON", -20), "refund ≠ purchase");
+  assert.notEqual(cacheKey("u1", "AMAZON", 20), cacheKey("u2", "AMAZON", 20), "per user");
+});
+
+test("categorizeWithLLM: short ids map back to rows; missing items omitted or rule-filled", async () => {
+  const { categorizeWithLLM } = await import("../ai/categorize.ts");
+  const real = globalThis.fetch;
+  let sent: { model: string; prompt: string } | null = null;
+  globalThis.fetch = (async (_u: unknown, init?: { body?: string }) => {
+    sent = JSON.parse(init!.body!);
+    const response = JSON.stringify({ results: [{ id: "2", merchant: "Netflix", category: "Subscriptions", subcategory: "Streaming", confidence: 0.97, tags: ["subscription"] }] });
+    return new Response(JSON.stringify({ response }));
+  }) as typeof fetch;
+  try {
+    const items = [
+      { id: "uuid-a", raw: "MYSTERY 001", amount: 5, currency: "USD" },
+      { id: "uuid-b", raw: "NETFLIX.COM 866-579", amount: 17.99, currency: "USD" },
+    ];
+    const omit = await categorizeWithLLM(items, { model: "qwen2.5:1.5b", missing: "omit" });
+    assert.deepEqual(omit.map((r) => [r.id, r.category, r.source]), [["uuid-b", "Subscriptions", "llm"]]);
+    assert.equal(sent!.model, "qwen2.5:1.5b");
+    assert.deepEqual(JSON.parse(sent!.prompt).map((p: { id: string }) => p.id), ["1", "2"], "UUIDs never reach the prompt");
+    assert.ok(!("think" in sent!), "no think flag for non-reasoning models");
+    const filled = await categorizeWithLLM(items, { model: "qwen2.5:1.5b" });
+    assert.deepEqual(filled.map((r) => r.source), ["rules", "llm"]);
+  } finally { globalThis.fetch = real; }
+});

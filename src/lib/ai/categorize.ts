@@ -37,23 +37,36 @@ For each item:
 Amounts: positive = money spent, negative = money received. Credit-card payments and transfers between own accounts are "Transfer".
 Return JSON only.`;
 
-/** Categorize a batch with the local model. Throws if Ollama is unreachable (caller decides whether to retry). */
-export async function categorizeWithLLM(items: CategorizeInput[], timeoutMs = 300_000): Promise<CategorizeResult[]> {
-  const prompt = JSON.stringify(items.map((i) => ({ id: i.id, raw: i.raw, amount: i.amount, currency: i.currency, hint: i.merchantHint ?? undefined })));
-  const text = await generate({ system: SYSTEM, prompt, format: SCHEMA, temperature: 0, timeoutMs });
-  const parsed = JSON.parse(text) as { results: Partial<CategorizeResult>[] };
-  const byId = new Map(parsed.results.map((r) => [r.id, r]));
-  return items.map((i) => {
-    const r = byId.get(i.id);
-    if (!r) return categorizeWithRules(i);
+export interface LLMOptions {
+  timeoutMs?: number;
+  model?: string;
+  /** what to do with items the model left out of its answer: rules fallback (default) or omit (caller retries) */
+  missing?: "rules" | "omit";
+}
+
+/**
+ * Categorize a batch with the local model in one structured-JSON call. Items get short ids ("1", "2", …)
+ * in the prompt: far fewer tokens than UUIDs and easier for small models to copy back.
+ * Throws on network / timeout / unparsable output (caller decides whether to retry or split).
+ */
+export async function categorizeWithLLM(items: CategorizeInput[], opts: LLMOptions | number = {}): Promise<CategorizeResult[]> {
+  const { timeoutMs = 300_000, model, missing = "rules" } = typeof opts === "number" ? { timeoutMs: opts } : opts;
+  const prompt = JSON.stringify(items.map((i, n) => ({ id: String(n + 1), raw: i.raw, amount: i.amount, currency: i.currency, hint: i.merchantHint ?? undefined })));
+  const text = await generate({ system: SYSTEM, prompt, format: SCHEMA, temperature: 0, timeoutMs, model });
+  const parsed = JSON.parse(text) as { results?: Partial<CategorizeResult>[] };
+  if (!Array.isArray(parsed.results)) throw new Error("model returned no results array");
+  const byId = new Map(parsed.results.map((r) => [String(r.id), r]));
+  return items.flatMap((i, n): CategorizeResult[] => {
+    const r = byId.get(String(n + 1));
+    if (!r) return missing === "rules" ? [categorizeWithRules(i)] : [];
     const category = (CATEGORIES as readonly string[]).includes(r.category as string) ? (r.category as Category) : "Other";
-    return {
+    return [{
       id: i.id, category, source: "llm",
       merchant: (r.merchant || i.merchantHint || i.raw).slice(0, 80),
       subcategory: (r.subcategory || "").slice(0, 40),
       confidence: Math.max(0, Math.min(1, Number(r.confidence) || 0.5)),
       tags: (r.tags ?? []).filter((t) => typeof t === "string").slice(0, 3),
-    };
+    }];
   });
 }
 

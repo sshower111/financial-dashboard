@@ -3,7 +3,12 @@
  * no ledger data is ever sent to a cloud model.
  */
 export const OLLAMA_URL = (process.env.OLLAMA_URL ?? "http://localhost:11434").replace(/\/$/, "");
+/** Assistant (chat) model: quality matters more than speed. */
 export const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "qwen3.5:9b";
+/** Worker categorization model: a short classification task, so a small fast model is enough on CPU. */
+export const OLLAMA_CATEGORIZE_MODEL = process.env.OLLAMA_CATEGORIZE_MODEL ?? "qwen2.5:1.5b";
+/** `think` is only understood by reasoning-capable models; others may reject the field. */
+const THINKS = /qwen3|deepseek-r1|gpt-oss|magistral/i;
 
 export interface GenerateOptions {
   prompt: string;
@@ -14,12 +19,15 @@ export interface GenerateOptions {
   signal?: AbortSignal;
   /** abort a non-streaming request after this long (first model load on CPU can take minutes) */
   timeoutMs?: number;
+  /** defaults to OLLAMA_MODEL */
+  model?: string;
 }
 
 function body(o: GenerateOptions, stream: boolean) {
+  const model = o.model ?? OLLAMA_MODEL;
   return JSON.stringify({
-    model: OLLAMA_MODEL, prompt: o.prompt, system: o.system, format: o.format, stream,
-    think: false, // qwen3.x: skip the reasoning trace, we only want the answer
+    model, prompt: o.prompt, system: o.system, format: o.format, stream,
+    ...(THINKS.test(model) ? { think: false } : {}), // skip the reasoning trace, we only want the answer
     keep_alive: "10m",
     options: { temperature: o.temperature ?? 0.2, num_ctx: 16384 },
   });
@@ -63,3 +71,17 @@ export async function ollamaHealthy(timeoutMs = 1500): Promise<boolean> {
     return res.ok;
   } catch { return false; }
 }
+
+/** Installed model names (e.g. "qwen2.5:1.5b"), or null if Ollama is unreachable. */
+export async function ollamaModels(timeoutMs = 1500): Promise<string[] | null> {
+  try {
+    const res = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(timeoutMs) });
+    if (!res.ok) return null;
+    const j = (await res.json()) as { models?: { name: string }[] };
+    return (j.models ?? []).map((m) => m.name);
+  } catch { return null; }
+}
+
+/** Ollama names untagged models ":latest". */
+export const hasModel = (installed: string[], want: string) =>
+  installed.some((n) => n === want || n === `${want}:latest` || (want.endsWith(":latest") && n === want.slice(0, -7)));

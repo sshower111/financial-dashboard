@@ -49,7 +49,7 @@ The owner works on **Windows PowerShell 5.1**: `&&` doesn't work there. Give com
 2. Plaid production access: `PLAID_ENV=production`, an ngrok static domain, `PLAID_REDIRECT_URI=https://<domain>/oauth` registered in the Plaid dashboard, `PLAID_WEBHOOK_URL=https://<domain>/api/plaid/webhook`. The owner must use the app through that HTTPS domain, since auth cookies are per-domain, and add `https://<domain>/auth/callback` to Supabase redirect URLs.
 3. Production OAuth and the webhook path haven't been run against real Plaid yet. Watch the worker logs on the first real link.
 4. Roadmap: Plaid Link update mode (`ITEM_LOGIN_REQUIRED`), encrypting access tokens (Supabase Vault), safe concurrent workers (`FOR UPDATE SKIP LOCKED` via an RPC), CSV import for brokers Plaid doesn't cover.
-5. On CPU, `qwen3.5:9b` categorizes about 10 transactions per minute. `OLLAMA_MODEL=qwen3:4b` is faster.
+5. Categorization: merchant cache first (in-memory, built from categorized rows, keyed by `merchantKey()` in `src/lib/ai/merchant.ts`), then up to `CATEGORIZE_BATCH`=50 deduped merchants per call to `OLLAMA_CATEGORIZE_MODEL` (default `qwen2.5:1.5b`, falls back to `OLLAMA_MODEL`). Failing batches split in half; a merchant failing 3 times gets the regex rules.
 
 ## Regenerating README media
 

@@ -84,7 +84,7 @@ flowchart LR
 2. `cp .env.example .env.local`, then fill in the Supabase URL and keys and your Plaid keys (start with `PLAID_ENV=sandbox`). `PLAID_COUNTRY_CODES` defaults to `US`.
 3. In Supabase → Authentication → URL Configuration, add `http://localhost:3000/auth/callback`.
 4. For OAuth banks and webhooks, expose the app over HTTPS (for example an ngrok static domain). Set `PLAID_REDIRECT_URI=https://…/oauth` and `PLAID_WEBHOOK_URL=https://…/api/plaid/webhook`, and register the redirect URI in the Plaid dashboard.
-5. Start a local model: `ollama pull qwen3.5:9b` (or set `OLLAMA_MODEL` to any model you have).
+5. Start local models: `ollama pull qwen3.5:9b` for the assistant and `ollama pull qwen2.5:1.5b` for categorization (override with `OLLAMA_MODEL` / `OLLAMA_CATEGORIZE_MODEL`; `llama3.2:3b` is a good middle ground).
 6. Run `npm run dev` and `npm run worker`, sign in, and click **Link institution**. Sandbox login: `user_good` / `pass_good`.
 
 ```bash

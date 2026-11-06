@@ -17,16 +17,18 @@ for (const f of [".env.local", ".env"]) if (existsSync(f)) loadEnvFile(f);
 
 const { supabaseAdmin } = await import("../src/lib/supabase/admin.ts");
 const { plaid, ACCOUNT_TYPES, SUPPORTED_CCY } = await import("../src/lib/plaid.ts");
-const { categorizeWithLLM } = await import("../src/lib/ai/categorize.ts");
-const { ollamaHealthy, OLLAMA_MODEL, OLLAMA_URL } = await import("../src/lib/ai/ollama.ts");
+const { categorizeWithLLM, categorizeWithRules } = await import("../src/lib/ai/categorize.ts");
+const { cacheKey } = await import("../src/lib/ai/merchant.ts");
+const { hasModel, ollamaModels, OLLAMA_CATEGORIZE_MODEL, OLLAMA_MODEL, OLLAMA_URL } = await import("../src/lib/ai/ollama.ts");
 const { detectAnomalies } = await import("../src/lib/finance/anomaly.ts");
 const { markTransfers } = await import("../src/lib/finance/transfers.ts");
 import type { Account, Transaction } from "../src/lib/types.ts";
+import type { CategorizeInput, CategorizeResult } from "../src/lib/ai/categorize.ts";
 import type { RemovedTransaction, Transaction as PlaidTxn } from "plaid";
 
 const db = supabaseAdmin();
 const POLL_MS = Number(process.env.WORKER_POLL_MS ?? 5000);
-const BATCH = 10;
+const JOB_BATCH = 10;
 const MAX_ATTEMPTS = 8;
 const log = (...a: unknown[]) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
@@ -151,7 +153,7 @@ const dirtyUsers = new Set<string>();
 async function processJobs() {
   const { data: rows } = await db.from("webhook_logs").select("*").eq("processed", false).lt("attempts", MAX_ATTEMPTS).order("created_at").limit(50);
   // backoff: attempt n waits 20s·n² after the job was created (0s, 20s, 80s, 3m, 5m…)
-  const jobs = (rows ?? []).filter((j) => Date.now() >= new Date(j.created_at).getTime() + 20_000 * j.attempts ** 2).slice(0, BATCH);
+  const jobs = (rows ?? []).filter((j) => Date.now() >= new Date(j.created_at).getTime() + 20_000 * j.attempts ** 2).slice(0, JOB_BATCH);
   for (const job of jobs) {
     const { webhook_type: type, webhook_code: code } = job;
     const itemId = job.payload?.item_id as string | undefined;
@@ -188,41 +190,175 @@ async function processJobs() {
   }
 }
 
-let ollamaUp = true;
-let firstBatch = true;
-async function categorize() {
-  const { data } = await db.from("transactions").select("id,user_id,raw_merchant_string,cleaned_merchant_name,amount,iso_currency_code")
-    .is("category", null).order("created_at").limit(BATCH);
-  if (!data?.length) return 0;
-  if (!(await ollamaHealthy())) {
-    if (ollamaUp) log(`Ollama unreachable at ${OLLAMA_URL}; ${data.length}+ transactions waiting`);
-    ollamaUp = false; return 0;
+// ── categorization ──────────────────────────────────────────────────────────────────────────
+// 1. merchant cache: rows whose normalized merchant (per user, money in/out) was already categorized
+//    get that answer instantly, no LLM call. Built from the DB, newest decision first, so manual
+//    recategorizations win; refreshed every CACHE_TTL and fed by new LLM answers.
+// 2. the rest are deduped by merchant and sent to the categorize model in one structured-JSON call
+//    of up to CATEGORIZE_BATCH merchants. A failing batch is split in half and retried; a single
+//    merchant that keeps failing falls back to the regex rules so the queue never stalls.
+// 3. repeated failures (Ollama down, model missing) back off exponentially; cache hits keep flowing.
+const BATCH = Math.max(1, Number(process.env.CATEGORIZE_BATCH ?? 50));
+const FETCH = 1000;                       // queued rows examined per pass (cache hits are cheap)
+const LLM_TIMEOUT = Number(process.env.OLLAMA_TIMEOUT_MS ?? 600_000);
+const CACHE_TTL = 15 * 60_000;
+const MIN_CACHE_CONFIDENCE = 0.6;         // don't propagate low-confidence guesses
+const ITEM_MAX_FAILS = 3;
+const DRAIN_MS = 120_000;                 // max time per tick on categorization, so Plaid jobs aren't starved
+
+interface Queued { id: string; user_id: string; raw_merchant_string: string; cleaned_merchant_name: string | null; amount: number; iso_currency_code: string }
+interface Labels { cleaned_merchant_name: string; category: string; subcategory: string | null; ai_confidence_score: number; ai_tags: string[] }
+
+const cache = new Map<string, Labels>();
+let cacheBuiltAt = 0;
+const itemFails = new Map<string, number>();
+let failStreak = 0, backoffUntil = 0;
+let ollamaUp = true, firstBatch = true;
+const warned = new Set<string>();
+const warnOnce = (k: string, msg: string) => { if (!warned.has(k)) { warned.add(k); log(msg); } };
+const keyOf = (r: Pick<Queued, "user_id" | "raw_merchant_string" | "amount">) => cacheKey(r.user_id, r.raw_merchant_string, Number(r.amount));
+const cleanTags = (t: unknown) => (Array.isArray(t) ? t : []).filter((x): x is string => typeof x === "string" && !x.startsWith("anomaly:"));
+const backoff = () => { failStreak++; const wait = Math.min(5_000 * 2 ** failStreak, 600_000); backoffUntil = Date.now() + wait; return wait; };
+
+async function buildCache() {
+  const t0 = Date.now();
+  cache.clear();
+  for (let from = 0; from < 50_000; from += 1000) {
+    const { data, error } = await db.from("transactions")
+      .select("user_id,raw_merchant_string,amount,cleaned_merchant_name,category,subcategory,ai_confidence_score,ai_tags")
+      .not("category", "is", null).order("updated_at", { ascending: false }).range(from, from + 999);
+    if (error) throw error;
+    for (const r of data ?? []) {
+      const k = keyOf(r);
+      const conf = r.ai_confidence_score == null ? 1 : Number(r.ai_confidence_score);
+      if (!k || cache.has(k) || conf < MIN_CACHE_CONFIDENCE) continue;
+      cache.set(k, { cleaned_merchant_name: r.cleaned_merchant_name ?? r.raw_merchant_string, category: r.category, subcategory: r.subcategory, ai_confidence_score: conf, ai_tags: cleanTags(r.ai_tags) });
+    }
+    if ((data ?? []).length < 1000) break;
+  }
+  cacheBuiltAt = Date.now();
+  log(`merchant cache: ${cache.size} merchants (${Date.now() - t0}ms)`);
+}
+
+/** Write labels, one request per distinct label set (cache hits for one merchant share a payload). */
+async function writeLabels(rows: { row: Queued; labels: Labels }[]) {
+  const groups = new Map<string, { labels: Labels; ids: string[] }>();
+  for (const { row, labels } of rows) {
+    const k = JSON.stringify(labels);
+    (groups.get(k) ?? groups.set(k, { labels, ids: [] }).get(k)!).ids.push(row.id);
+    dirtyUsers.add(row.user_id);
+  }
+  for (const { labels, ids } of groups.values())
+    for (let i = 0; i < ids.length; i += 200)
+      // `.is(category, null)`: never overwrite a label set meanwhile (e.g. by the user)
+      await db.from("transactions").update(labels).in("id", ids.slice(i, i + 200)).is("category", null).throwOnError();
+}
+
+const toLabels = (r: CategorizeResult): Labels => ({ cleaned_merchant_name: r.merchant, category: r.category, subcategory: r.subcategory, ai_confidence_score: Math.round(r.confidence * 100) / 100, ai_tags: r.tags });
+const toInput = (t: Queued): CategorizeInput => ({ id: t.id, raw: t.raw_merchant_string, amount: Number(t.amount), currency: t.iso_currency_code, merchantHint: t.cleaned_merchant_name });
+const describe = (e: unknown) => e instanceof Error ? (e.name === "TimeoutError" ? `timed out after ${Math.round(LLM_TIMEOUT / 1000)}s` : e.message) : String(e);
+/** errors where splitting the batch can't help */
+const fatal = (e: unknown) => /not found|fetch failed|ECONNREFUSED|ENOTFOUND/i.test(describe(e) + String((e as { cause?: unknown })?.cause ?? ""));
+
+/** Pick the categorize model; fall back to the assistant model if it isn't pulled yet. null = unavailable. */
+async function resolveModel(): Promise<string | null> {
+  const installed = await ollamaModels();
+  if (!installed) return null;
+  if (hasModel(installed, OLLAMA_CATEGORIZE_MODEL)) return OLLAMA_CATEGORIZE_MODEL;
+  if (hasModel(installed, OLLAMA_MODEL)) {
+    warnOnce("fallback", `categorize model ${OLLAMA_CATEGORIZE_MODEL} isn't installed; using ${OLLAMA_MODEL} (slower). Run: ollama pull ${OLLAMA_CATEGORIZE_MODEL}`);
+    return OLLAMA_MODEL;
+  }
+  warnOnce("nomodel", `neither ${OLLAMA_CATEGORIZE_MODEL} nor ${OLLAMA_MODEL} is installed in Ollama. Run: ollama pull ${OLLAMA_CATEGORIZE_MODEL}`);
+  return null;
+}
+
+/** One LLM call; on failure split in half and retry. Returns results for the items that succeeded. */
+async function llmWithSplit(items: Queued[], model: string): Promise<Map<string, CategorizeResult>> {
+  const out = new Map<string, CategorizeResult>();
+  const bump = (t: Queued, why: string) => {
+    const n = (itemFails.get(t.id) ?? 0) + 1;
+    if (n < ITEM_MAX_FAILS) { itemFails.set(t.id, n); return; }
+    itemFails.delete(t.id);
+    out.set(t.id, categorizeWithRules(toInput(t)));
+    log(`  gave up on "${t.raw_merchant_string.slice(0, 50)}" after ${n} LLM failures (${why}); used rules`);
+  };
+  try {
+    const res = await categorizeWithLLM(items.map(toInput), { model, timeoutMs: LLM_TIMEOUT, missing: "omit" });
+    for (const r of res) { out.set(r.id, r); itemFails.delete(r.id); }
+    for (const t of items) if (!out.has(t.id)) bump(t, "missing from model output");
+    return out;
+  } catch (e) {
+    if (fatal(e)) throw e;
+    if (items.length === 1) { bump(items[0], describe(e).slice(0, 80)); return out; }
+    const mid = Math.ceil(items.length / 2);
+    log(`  batch of ${items.length} failed (${describe(e).slice(0, 120)}); splitting ${mid}+${items.length - mid}`);
+    for (const half of [items.slice(0, mid), items.slice(mid)]) for (const [k, v] of await llmWithSplit(half, model)) out.set(k, v);
+    return out;
+  }
+}
+
+/** One categorization pass. Returns true if it made progress and more work may remain. */
+async function categorize(): Promise<boolean> {
+  if (Date.now() - cacheBuiltAt > CACHE_TTL) await buildCache();
+  const { data, error } = await db.from("transactions").select("id,user_id,raw_merchant_string,cleaned_merchant_name,amount,iso_currency_code")
+    .is("category", null).order("created_at").limit(FETCH);
+  if (error) throw error;
+  const queued = (data ?? []) as Queued[];
+  if (!queued.length) return false;
+
+  // 1. cache
+  const t0 = Date.now();
+  const hits: { row: Queued; labels: Labels }[] = [], misses: Queued[] = [];
+  for (const r of queued) { const c = cache.get(keyOf(r)); if (c) hits.push({ row: r, labels: c }); else misses.push(r); }
+  if (hits.length) {
+    await writeLabels(hits);
+    log(`cache: ${hits.length} of ${queued.length} queued applied instantly (${Date.now() - t0}ms), ${misses.length} need the LLM`);
+  }
+  if (!misses.length) return true;
+
+  // 2. LLM, unless backing off
+  if (Date.now() < backoffUntil) return hits.length > 0;
+  const model = await resolveModel();
+  if (!model) {
+    if (ollamaUp) log(`Ollama unreachable at ${OLLAMA_URL} or no model installed; ${misses.length}+ transactions waiting (cache hits still apply)`);
+    ollamaUp = false; backoff(); return hits.length > 0;
   }
   if (!ollamaUp) log("Ollama back online");
   ollamaUp = true;
-  const t0 = Date.now();
-  const { count } = await db.from("transactions").select("id", { count: "exact", head: true }).is("category", null);
-  log(`categorizing ${data.length} of ${count ?? "?"} queued with ${OLLAMA_MODEL}…${firstBatch ? " (first call loads the model; can take a few minutes on CPU)" : ""}`);
+
+  // one representative per merchant; its answer is applied to every queued row of that merchant
+  const groups = new Map<string, Queued[]>();
+  const gk = (r: Queued) => keyOf(r) || `id:${r.id}`;
+  for (const r of misses) (groups.get(gk(r)) ?? groups.set(gk(r), []).get(gk(r))!).push(r);
+  const reps = [...groups.values()].slice(0, BATCH).map((g) => g[0]);
+  const covered = reps.reduce((n, r) => n + groups.get(gk(r))!.length, 0);
+  log(`ollama: ${reps.length} merchants (${covered} txns) → ${model}…${firstBatch ? " (first call loads the model; can take a minute on CPU)" : ""}`);
   firstBatch = false;
-  let results;
+  const t1 = Date.now();
+  let results: Map<string, CategorizeResult>;
   try {
-    results = await categorizeWithLLM(data.map((t) => ({ id: t.id, raw: t.raw_merchant_string, amount: Number(t.amount), currency: t.iso_currency_code, merchantHint: t.cleaned_merchant_name })));
+    results = await llmWithSplit(reps, model);
   } catch (e) {
-    const msg = e instanceof Error ? (e.name === "TimeoutError" ? "timed out after 5 min" : e.message) : String(e);
-    log(`categorization failed: ${msg.slice(0, 200)} — will retry next tick`);
-    return 0;
+    const wait = backoff();
+    log(`ollama: batch failed (${describe(e).slice(0, 160)}); backing off ${Math.round(wait / 1000)}s`);
+    return hits.length > 0;
   }
-  const userOf = new Map(data.map((t) => [t.id, t.user_id as string]));
-  await Promise.all(results.map(async (r) => {
-    // merge AI tags with any anomaly tags already present
-    await db.from("transactions").update({
-      cleaned_merchant_name: r.merchant, category: r.category, subcategory: r.subcategory,
-      ai_confidence_score: Math.round(r.confidence * 100) / 100, ai_tags: r.tags,
-    }).eq("id", r.id).throwOnError();
-    dirtyUsers.add(userOf.get(r.id)!);
-  }));
-  log(`categorized ${results.length} with ${OLLAMA_MODEL} in ${Date.now() - t0}ms`);
-  return results.length;
+  const updates: { row: Queued; labels: Labels }[] = [];
+  let viaRules = 0;
+  for (const rep of reps) {
+    const r = results.get(rep.id);
+    if (!r) continue; // left queued; retried next pass
+    if (r.source === "rules") viaRules++;
+    const labels = toLabels(r), k = keyOf(rep);
+    for (const row of groups.get(gk(rep))!) updates.push({ row, labels });
+    if (k && r.source === "llm" && r.confidence >= MIN_CACHE_CONFIDENCE) cache.set(k, labels);
+  }
+  await writeLabels(updates);
+  const secs = (Date.now() - t1) / 1000;
+  if (results.size) failStreak = 0; else backoff();
+  log(`ollama: ${results.size}/${reps.length} merchants → ${updates.length} txns in ${secs.toFixed(1)}s (${(results.size / Math.max(secs, 0.001)).toFixed(2)} merchants/s${viaRules ? `, ${viaRules} via rules fallback` : ""}), ${misses.length - covered} still queued`);
+  return updates.length > 0 || hits.length > 0;
 }
 
 async function scanAnomalies() {
@@ -266,7 +402,7 @@ async function refreshFx() {
   }
 }
 
-log(`worker up · poll ${POLL_MS}ms · model ${OLLAMA_MODEL} @ ${OLLAMA_URL}`);
+log(`worker up · poll ${POLL_MS}ms · categorize ${OLLAMA_CATEGORIZE_MODEL} (batch ${BATCH}) · assistant ${OLLAMA_MODEL} @ ${OLLAMA_URL}`);
 let stopping = false;
 process.on("SIGINT", () => { stopping = true; });
 process.on("SIGTERM", () => { stopping = true; });
@@ -274,8 +410,9 @@ while (!stopping) {
   try {
     await refreshFx();
     await processJobs();
-    // keep draining the categorization queue while there is work
-    while ((await categorize()) === BATCH && !stopping);
+    // drain the categorization queue, but yield to Plaid jobs every DRAIN_MS
+    const until = Date.now() + DRAIN_MS;
+    while (!stopping && Date.now() < until && (await categorize()));
     await scanAnomalies();
   } catch (e) {
     log("tick failed:", e instanceof Error ? e.message : e);
