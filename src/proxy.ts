@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { publicOrigin } from "@/lib/origin";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL, key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -22,7 +23,7 @@ export async function proxy(req: NextRequest) {
   const open = p.startsWith("/login") || p.startsWith("/auth") || p.startsWith("/api/plaid/webhook") || p.startsWith("/api/health");
   if (!user && !open) {
     if (p.startsWith("/api/")) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    const to = req.nextUrl.clone(); to.pathname = "/login"; return NextResponse.redirect(to);
+    return NextResponse.redirect(new URL("/login", publicOrigin(req)));
   }
   return res;
 }
