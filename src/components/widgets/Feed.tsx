@@ -1,6 +1,6 @@
 "use client";
 import { AnimatePresence, motion } from "framer-motion";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useLedger } from "@/store/ledger";
 import { useDerived, useScopedData } from "@/store/derived";
 import { Money } from "../Money";
@@ -20,9 +20,19 @@ export function Feed() {
   const d = useDerived();
   const flagged = useMemo(() => new Set(d?.anomalies.map((a) => a.transactionId)), [d]);
   const acct = useMemo(() => new Map(data?.accounts.map((a) => [a.id, a.name])), [data]);
+  const [order, setOrder] = useState<"new" | "old">("new");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const filtered = useMemo(() => {
+    const list = (data?.transactions ?? []).filter((t) => (!from || t.date >= from) && (!to || t.date <= to));
+    // the store keeps newest-first (date, then arrival); oldest-first is the exact reverse
+    return order === "new" ? list : [...list].reverse();
+  }, [data, from, to, order]);
   if (!data) return null;
-  const rows = data.transactions.slice(0, 60);
-  if (!rows.length) return <Empty>No transactions yet. Link an institution to start the feed.</Empty>;
+  if (!data.transactions.length) return <Empty>No transactions yet. Link an institution to start the feed.</Empty>;
+  const LIMIT = 200;
+  const rows = filtered.slice(0, LIMIT);
+  const ctl = "h-6 border border-line bg-bg px-1 text-[11px] text-ink-2 focus:border-ink focus:outline-none";
 
   return (
     <div className="flex h-full flex-col">
@@ -38,6 +48,17 @@ export function Feed() {
         </AnimatePresence>
         {!events.length && <li className="text-muted">Listening for new transactions…</li>}
       </ol>
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-3 py-1.5 text-[11px] text-muted">
+        <select value={order} onChange={(e) => setOrder(e.target.value as "new" | "old")} className={ctl} aria-label="Sort by date">
+          <option value="new">Newest first</option>
+          <option value="old">Oldest first</option>
+        </select>
+        <label className="flex items-center gap-1">From <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} className={`num ${ctl} ${from ? "!border-accent" : ""}`} /></label>
+        <label className="flex items-center gap-1">To <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} className={`num ${ctl} ${to ? "!border-accent" : ""}`} /></label>
+        {(from || to) && <button onClick={() => { setFrom(""); setTo(""); }} className="hover:text-ink">Clear</button>}
+        <span className="num ml-auto">{filtered.length > LIMIT ? `${LIMIT} of ${filtered.length}` : filtered.length} txns</span>
+      </div>
+      {!rows.length && <Empty>No transactions in this date range.</Empty>}
       <div className="scroll-thin min-h-0 flex-1 overflow-auto">
         <table className="tbl tbl-fixed">
           <thead><tr><th className="w-16">Date</th><th>Merchant</th><th className="hidden w-[30%] lg:table-cell">Category</th><th className="hidden w-[20%] xl:table-cell">Account</th><th className="r w-32">Amount</th></tr></thead>
