@@ -4,7 +4,7 @@ import { supabaseBrowser } from "./supabase/client";
 import type { Budget, Currency } from "./types";
 import type { LayoutItem } from "./layout";
 
-const LS = { layout: "ledger.layout.v1", budgets: "ledger.budgets.v1" };
+const LS = { layout: "ledger.layout.v1", budgets: "ledger.budgets.v1", owners: "ledger.owners.v1" };
 const lsGet = <T,>(k: string): T | null => { try { const v = localStorage.getItem(k); return v ? (JSON.parse(v) as T) : null; } catch { return null; } };
 const lsSet = (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } };
 
@@ -40,4 +40,14 @@ export async function saveBaseCurrency(base: Currency) {
   const sb = supabaseBrowser();
   const { data: { user } } = await sb.auth.getUser();
   if (user) await sb.from("user_settings").upsert({ user_id: user.id, base_currency: base });
+}
+
+/** Demo mode keeps person labels in localStorage: { accountId: label | null }. */
+export function loadDemoOwners(): Record<string, string | null> | null { return lsGet(LS.owners); }
+
+/** Person label for an account. Live: column-granted update on accounts.owner_label (migration 0003). */
+export async function saveOwnerLabel(accountId: string, label: string | null) {
+  if (DEMO_MODE) { lsSet(LS.owners, { ...(loadDemoOwners() ?? {}), [accountId]: label }); return; }
+  const { error } = await supabaseBrowser().from("accounts").update({ owner_label: label }).eq("id", accountId);
+  if (error) throw error;
 }

@@ -18,6 +18,8 @@ export interface Account {
   available_balance: number | null;
   limit_amount: number | null;
   is_active: boolean;
+  /** person this account belongs to (migration 0003); null = unassigned */
+  owner_label?: string | null;
 }
 
 /** Plaid sign convention: amount > 0 is money leaving the account. */

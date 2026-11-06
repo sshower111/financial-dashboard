@@ -1,13 +1,12 @@
 "use client";
 import { useMemo } from "react";
-import { useLedger } from "@/store/ledger";
-import { useDerived } from "@/store/derived";
+import { useDerived, useScopedData } from "@/store/derived";
 import { spendByCategory } from "@/lib/finance/cashflow";
 import { addDays, todayKey } from "@/lib/finance/dates";
 import { money } from "@/lib/format";
 
 export function Spending() {
-  const data = useLedger((s) => s.data);
+  const data = useScopedData();
   const d = useDerived();
   const rows = useMemo(() => {
     if (!data || !d) return [];

@@ -17,13 +17,13 @@ export const demoInstitutions: Institution[] = [
 ];
 
 export const demoAccounts: Account[] = [
-  { id: "acc-chase-chk", institution_id: "ins-chase", name: "Chase Total Checking", type: "depository", subtype: "checking", currency: "USD", current_balance: 7842.17, available_balance: 7842.17, limit_amount: null, is_active: true },
-  { id: "acc-chase-sav", institution_id: "ins-chase", name: "Chase Savings", type: "depository", subtype: "savings", currency: "USD", current_balance: 21250.0, available_balance: 21250.0, limit_amount: null, is_active: true },
-  { id: "acc-wise-eur", institution_id: "ins-wise", name: "Wise EUR Balance", type: "depository", subtype: "checking", currency: "EUR", current_balance: 2380.55, available_balance: 2380.55, limit_amount: null, is_active: true },
-  { id: "acc-amex", institution_id: "ins-amex", name: "Amex Gold Card", type: "credit", subtype: "credit card", currency: "USD", current_balance: 1873.42, available_balance: null, limit_amount: 10000, is_active: true },
-  { id: "acc-chase-cc", institution_id: "ins-chase", name: "Chase Sapphire Preferred", type: "credit", subtype: "credit card", currency: "USD", current_balance: 412.9, available_balance: 11587.1, limit_amount: 12000, is_active: true },
-  { id: "acc-fid-roth", institution_id: "ins-fidelity", name: "Fidelity Roth IRA", type: "investment", subtype: "roth", currency: "USD", current_balance: 38210.33, available_balance: null, limit_amount: null, is_active: true },
-  { id: "acc-schwab", institution_id: "ins-schwab", name: "Schwab Brokerage", type: "investment", subtype: "brokerage", currency: "USD", current_balance: 14987.6, available_balance: null, limit_amount: null, is_active: true },
+  { id: "acc-chase-chk", institution_id: "ins-chase", name: "Chase Total Checking", type: "depository", subtype: "checking", currency: "USD", current_balance: 7842.17, available_balance: 7842.17, limit_amount: null, is_active: true, owner_label: "Me" },
+  { id: "acc-chase-sav", institution_id: "ins-chase", name: "Chase Savings", type: "depository", subtype: "savings", currency: "USD", current_balance: 21250.0, available_balance: 21250.0, limit_amount: null, is_active: true, owner_label: "Me" },
+  { id: "acc-wise-eur", institution_id: "ins-wise", name: "Wise EUR Balance", type: "depository", subtype: "checking", currency: "EUR", current_balance: 2380.55, available_balance: 2380.55, limit_amount: null, is_active: true, owner_label: "Me" },
+  { id: "acc-amex", institution_id: "ins-amex", name: "Amex Gold Card", type: "credit", subtype: "credit card", currency: "USD", current_balance: 1873.42, available_balance: null, limit_amount: 10000, is_active: true, owner_label: "Partner" },
+  { id: "acc-chase-cc", institution_id: "ins-chase", name: "Chase Sapphire Preferred", type: "credit", subtype: "credit card", currency: "USD", current_balance: 412.9, available_balance: 11587.1, limit_amount: 12000, is_active: true, owner_label: "Me" },
+  { id: "acc-fid-roth", institution_id: "ins-fidelity", name: "Fidelity Roth IRA", type: "investment", subtype: "roth", currency: "USD", current_balance: 38210.33, available_balance: null, limit_amount: null, is_active: true, owner_label: "Me" },
+  { id: "acc-schwab", institution_id: "ins-schwab", name: "Schwab Brokerage", type: "investment", subtype: "brokerage", currency: "USD", current_balance: 14987.6, available_balance: null, limit_amount: null, is_active: true, owner_label: "Partner" },
 ];
 
 export const demoHoldings: Holding[] = [

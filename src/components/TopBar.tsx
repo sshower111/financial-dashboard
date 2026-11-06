@@ -7,6 +7,7 @@ import { saveBaseCurrency } from "@/lib/persist";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { Currency } from "@/lib/types";
 import { ConnectBank } from "./ConnectBank";
+import { ALL, ownerLabels, scopeAccountIds } from "@/lib/finance/scope";
 
 const BASES: Currency[] = ["USD", "EUR", "GBP"];
 
@@ -23,6 +24,31 @@ function ThemeToggle() {
     try { localStorage.setItem("ledger.theme", d ? "dark" : "light"); } catch { /* */ }
   };
   return <button onClick={flip} className="grid h-7 w-7 place-items-center border border-line text-ink-2 hover:text-ink" title="Toggle theme" aria-label="Toggle theme">{dark ? <Sun size={13} /> : <Moon size={13} />}</button>;
+}
+
+/** Scope switcher: filters every panel (and the assistant) to a person, institution or account. */
+function ScopeSelect() {
+  const data = useLedger((s) => s.data);
+  const scope = useLedger((s) => s.scope);
+  if (!data || data.accounts.length < 2) return null;
+  const value = scopeAccountIds(data.accounts, scope) ? scope : ALL;
+  const people = ownerLabels(data.accounts);
+  const insts = data.institutions.filter((i) => data.accounts.some((a) => a.institution_id === i.id));
+  const active = value !== ALL;
+  return (
+    <select value={value} onChange={(e) => useLedger.getState().setScope(e.target.value)} aria-label="Show accounts"
+      title="Filter the whole dashboard"
+      className={`h-7 max-w-[14rem] border bg-bg px-1.5 text-[12px] ${active ? "border-accent text-accent" : "border-line hover:border-ink"}`}>
+      <option value={ALL}>All accounts</option>
+      {people.length > 0 && <optgroup label="People">{people.map((p) => <option key={p} value={`person:${p}`}>{p}</option>)}</optgroup>}
+      {insts.length > 1 && <optgroup label="Institutions">{insts.map((i) => <option key={i.id} value={`inst:${i.id}`}>{i.name}</option>)}</optgroup>}
+      {insts.map((i) => (
+        <optgroup key={i.id} label={i.name}>
+          {data.accounts.filter((a) => a.institution_id === i.id).map((a) => <option key={a.id} value={`acct:${a.id}`}>{a.name}</option>)}
+        </optgroup>
+      ))}
+    </select>
+  );
 }
 
 export function TopBar() {
@@ -51,6 +77,7 @@ export function TopBar() {
       )}
 
       <div className="ml-auto flex flex-wrap items-center gap-2">
+        <ScopeSelect />
         {editing && (
           <>
             {hidden.length > 0 && (

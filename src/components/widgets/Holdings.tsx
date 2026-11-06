@@ -1,11 +1,10 @@
 "use client";
-import { useLedger } from "@/store/ledger";
-import { useDerived } from "@/store/derived";
+import { useDerived, useScopedData } from "@/store/derived";
 import { Money } from "../Money";
 import { Empty } from "../Panel";
 
 export function Holdings() {
-  const data = useLedger((s) => s.data);
+  const data = useScopedData();
   const d = useDerived();
   if (!data || !d) return null;
   if (!data.holdings.length) return <Empty>No brokerage holdings linked.</Empty>;

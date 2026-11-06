@@ -6,12 +6,12 @@
  *  - demo mode: a simulator that streams raw bank strings through /api/categorize
  */
 import { useEffect, useRef } from "react";
-import { useLedger } from "@/store/ledger";
+import { SCOPE_KEY, useLedger } from "@/store/ledger";
 import { DEMO_MODE } from "@/lib/env";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { demoLedger, loadLedger } from "@/lib/ledger-load";
 import { LIVE_SAMPLES, demoBudgets } from "@/lib/demo";
-import { loadDemoBudgets, loadLayout, saveLayout } from "@/lib/persist";
+import { loadDemoBudgets, loadDemoOwners, loadLayout, saveLayout } from "@/lib/persist";
 import { DEFAULT_LAYOUT, sanitizeLayout } from "@/lib/layout";
 import { detectAnomalies } from "@/lib/finance/anomaly";
 import { todayKey } from "@/lib/finance/dates";
@@ -33,10 +33,13 @@ export function LiveSync() {
       try {
         if (DEMO_MODE) {
           const d = demoLedger();
-          s.setData({ ...d, budgets: loadDemoBudgets() ?? demoBudgets });
+          const owners = loadDemoOwners() ?? {};
+          s.setData({ ...d, budgets: loadDemoBudgets() ?? demoBudgets, accounts: d.accounts.map((a) => (a.id in owners ? { ...a, owner_label: owners[a.id] } : a)) });
         } else {
           s.setData(await loadLedger(supabaseBrowser()));
         }
+        // restore the per-browser scope; a stale one (account removed) just resolves to "all"
+        try { const sc = localStorage.getItem(SCOPE_KEY); if (sc) useLedger.setState({ scope: sc }); } catch { /* private mode */ }
         const stored = await loadLayout().catch(() => null);
         s.setLayout(stored == null ? DEFAULT_LAYOUT : sanitizeLayout(stored));
       } catch (e) {

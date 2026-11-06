@@ -2,14 +2,21 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useMemo } from "react";
 import { useLedger } from "@/store/ledger";
-import { useDerived } from "@/store/derived";
+import { useDerived, useScopedData } from "@/store/derived";
 import { Money } from "../Money";
 import { clock, shortDate } from "@/lib/format";
 import { Empty } from "../Panel";
 
 export function Feed() {
-  const data = useLedger((s) => s.data);
-  const events = useLedger((s) => s.events);
+  const data = useScopedData();
+  const allEvents = useLedger((s) => s.events);
+  const scope = useLedger((s) => s.scope);
+  // pipeline events tied to a transaction follow the scope; general events (sync notices) always show
+  const events = useMemo(() => {
+    if (scope === "all" || !data) return allEvents;
+    const ids = new Set(data.transactions.map((t) => t.id));
+    return allEvents.filter((e) => !e.txnId || ids.has(e.txnId));
+  }, [allEvents, scope, data]);
   const d = useDerived();
   const flagged = useMemo(() => new Set(d?.anomalies.map((a) => a.transactionId)), [d]);
   const acct = useMemo(() => new Map(data?.accounts.map((a) => [a.id, a.name])), [data]);

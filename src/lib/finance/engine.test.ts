@@ -90,3 +90,27 @@ test("cash flow delta excludes transfers", () => {
   const d = cashFlowDelta(txns, fxUsd, NOW);
   assert.ok(d.current.inflow > 0 && d.current.outflow > 0);
 });
+
+test("scope: institution / account / person filter accounts, transactions and holdings together", async () => {
+  const { scopeLedger, scopeAccountIds, ownerLabels } = await import("./scope.ts");
+  const { demoHoldings } = await import("../demo.ts");
+  const d = { accounts: demoAccounts, transactions: demoTransactions(), holdings: demoHoldings };
+
+  assert.equal(scopeLedger(d, "all"), d);
+  assert.equal(scopeAccountIds(d.accounts, "acct:does-not-exist"), null, "stale scope falls back to all");
+
+  const chase = scopeLedger(d, "inst:ins-chase");
+  assert.ok(chase.accounts.length >= 2 && chase.accounts.every((a) => a.institution_id === "ins-chase"));
+  const ids = new Set(chase.accounts.map((a) => a.id));
+  assert.ok(chase.transactions.length > 0 && chase.transactions.every((t) => ids.has(t.account_id)));
+  assert.equal(chase.holdings.length, 0);
+
+  const one = scopeLedger(d, "acct:acc-amex");
+  assert.deepEqual(one.accounts.map((a) => a.id), ["acc-amex"]);
+  assert.ok(one.transactions.every((t) => t.account_id === "acc-amex"));
+
+  assert.deepEqual(ownerLabels(d.accounts), ["Me", "Partner"]);
+  const partner = scopeLedger(d, "person:Partner");
+  assert.deepEqual(partner.accounts.map((a) => a.id).sort(), ["acc-amex", "acc-schwab"]);
+  assert.ok(partner.holdings.every((h) => h.account_id === "acc-schwab"));
+});

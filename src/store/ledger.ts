@@ -19,6 +19,8 @@ interface State {
   ai: { up: boolean | null; model: string };
   /** ids whose row should animate in */
   fresh: Set<string>;
+  /** dashboard filter: see lib/finance/scope.ts (persisted per browser) */
+  scope: string;
 
   setData: (d: LedgerData) => void;
   setError: (e: string) => void;
@@ -28,6 +30,8 @@ interface State {
   removeTxn: (id: string) => void;
   patchAccountBalance: (accountId: string, delta: number) => void;
   setBudgets: (b: Budget[]) => void;
+  setScope: (scope: string) => void;
+  setOwnerLabel: (accountId: string, label: string | null) => void;
   pushEvent: (e: Omit<FeedEvent, "id" | "at"> & { at?: string }) => void;
 
   setLayout: (l: LayoutItem[]) => void;
@@ -40,6 +44,7 @@ interface State {
 }
 
 let evSeq = 0;
+export const SCOPE_KEY = "ledger.scope.v1";
 
 export const useLedger = create<State>((set) => ({
   status: "loading",
@@ -51,6 +56,7 @@ export const useLedger = create<State>((set) => ({
   events: [],
   ai: { up: null, model: "" },
   fresh: new Set(),
+  scope: "all",
 
   setData: (data) => set({ data, status: "ready", base: data.base }),
   setError: (error) => set({ status: "error", error }),
@@ -80,6 +86,8 @@ export const useLedger = create<State>((set) => ({
       return { ...a, current_balance: Math.round((a.current_balance + d) * 100) / 100, available_balance: a.available_balance == null ? null : Math.round((a.available_balance - delta) * 100) / 100 };
     }) } };
   }),
+  setScope: (scope) => { try { localStorage.setItem(SCOPE_KEY, scope); } catch { /* private mode */ } set({ scope }); },
+  setOwnerLabel: (accountId, label) => set((s) => (s.data ? { data: { ...s.data, accounts: s.data.accounts.map((a) => (a.id === accountId ? { ...a, owner_label: label } : a)) } } : s)),
   setBudgets: (budgets) => set((s) => (s.data ? { data: { ...s.data, budgets } } : s)),
   pushEvent: (e) => set((s) => ({ events: [{ ...e, id: `ev-${++evSeq}`, at: e.at ?? new Date().toISOString() }, ...s.events].slice(0, 60) })),
 

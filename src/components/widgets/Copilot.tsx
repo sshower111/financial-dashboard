@@ -10,6 +10,7 @@ export function Copilot() {
   const base = useLedger((s) => s.base);
   const ai = useLedger((s) => s.ai);
   const demo = useLedger((s) => s.demo);
+  const scope = useLedger((s) => s.scope);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -24,7 +25,7 @@ export function Copilot() {
     setInput(""); setBusy(true);
     abort.current = new AbortController();
     try {
-      const res = await fetch("/api/copilot", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: next, base }), signal: abort.current.signal });
+      const res = await fetch("/api/copilot", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: next, base, scope }), signal: abort.current.signal });
       if (!res.body) throw new Error(await res.text());
       const reader = res.body.getReader(), dec = new TextDecoder();
       let acc = "";

@@ -22,7 +22,8 @@ The owner works on **Windows PowerShell 5.1**: `&&` doesn't work there. Give com
 - `worker/index.ts`: queue = `webhook_logs` (processed=false, backoff by `attempts`). Run **one** instance only.
 - `src/components/LiveSync.tsx`: initial load, Realtime subscription (sets the JWT with `realtime.setAuth` **before** subscribing; otherwise RLS silently drops events), the demo simulator, and layout persistence.
 - `src/lib/demo.ts`: deterministic US demo ledger (seeded per calendar day). `engine.test.ts` asserts on its merchant names.
-- `supabase/migrations/`: 0001 init, 0002 USD defaults. Both are applied to the live project.
+- `supabase/migrations/`: 0001 init, 0002 USD defaults (applied to the live project), 0003 `accounts.owner_label` (check whether applied).
+- `src/lib/finance/scope.ts` + `useScopedData()` in `src/store/derived.ts`: the account/person switcher. Panels read scoped data, never `s.data` directly (budgets excepted); `/api/copilot` applies the same `scopeLedger`.
 
 ## Conventions
 
@@ -38,7 +39,7 @@ The owner works on **Windows PowerShell 5.1**: `&&` doesn't work there. Give com
 
 - **GitHub**: https://github.com/sshower111/financial-dashboard (public, `main`).
 - **Live demo**: https://financial-dashboard-sshower.vercel.app, a Vercel project `financial-dashboard` that auto-deploys from `main`. It has **no env vars**, so it runs in demo mode. Keep it that way: adding Supabase keys there would expose a login to the real database.
-- **Supabase**: project `ledger`, ref `vvsxskhbtrgrucnqszzf`, region ca-central-1, free plan. Free projects pause after about a week idle; restore from the dashboard. Migrations 0001 and 0002 are applied. Sandbox test data was deleted. One user, the owner.
+- **Supabase**: project `financial-dashboard` (renamed from `ledger`), ref `vvsxskhbtrgrucnqszzf`, region ca-central-1, free plan. Free projects pause after about a week idle; restore from the dashboard. Migrations 0001 and 0002 are applied; 0003 is written, apply it in the SQL editor. Sandbox test data was deleted. One user, the owner.
 - **Plaid**: sandbox tested end to end (link → sync of 217 transactions and 13 holdings → categorization → live feed).
 - **Verified**: Realtime delivers inserts and updates to the browser in about 1 second (Playwright against the live project, with a throwaway user that was deleted afterwards).
 

@@ -7,10 +7,18 @@ import { cashFlowDelta } from "@/lib/finance/cashflow";
 import { forecastCash } from "@/lib/finance/forecast";
 import { detectAnomalies } from "@/lib/finance/anomaly";
 import { budgetPacing } from "@/lib/finance/pacing";
+import { scopeLedger } from "@/lib/finance/scope";
+
+/** The ledger narrowed to the selected scope (All / institution / account / person). Every panel reads this. */
+export function useScopedData() {
+  const data = useLedger((s) => s.data);
+  const scope = useLedger((s) => s.scope);
+  return useMemo(() => (data ? scopeLedger(data, scope) : null), [data, scope]);
+}
 
 /** All derived figures, memoized on the raw ledger + base currency. */
 export function useDerived() {
-  const data = useLedger((s) => s.data);
+  const data = useScopedData();
   const base = useLedger((s) => s.base);
   return useMemo(() => {
     if (!data) return null;
