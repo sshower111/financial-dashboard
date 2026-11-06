@@ -6,7 +6,7 @@ export const WIDGETS: Record<WidgetId, { title: string; minW: LayoutItem["w"] }>
   feed: { title: "Live activity", minW: 4 },
   forecast: { title: "30-day cash forecast", minW: 4 },
   pacing: { title: "Budget pacing", minW: 4 },
-  copilot: { title: "Copilot", minW: 4 },
+  copilot: { title: "Assistant", minW: 4 },
   anomalies: { title: "Leakage & anomalies", minW: 3 },
   accounts: { title: "Accounts", minW: 4 },
   holdings: { title: "Holdings", minW: 4 },

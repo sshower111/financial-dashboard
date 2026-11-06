@@ -44,7 +44,7 @@ export function buildLedgerContext(l: Ledger, now = new Date()): string {
   });
 }
 
-export const COPILOT_SYSTEM = `You are the ledger copilot inside a personal finance dashboard. You answer questions about the user's own finances using ONLY the JSON ledger snapshot provided.
+export const COPILOT_SYSTEM = `You are the assistant inside a personal finance dashboard. You answer questions about the user's own finances using ONLY the JSON ledger snapshot provided.
 Rules:
 - Be direct and brief: lead with the answer in one sentence, then up to 4 short supporting bullets with specific merchants, dates and amounts.
 - Prefer the precomputed figures (weeklyBurn, budgets, forecast30d) over doing your own arithmetic. If you must compute, show the inputs.

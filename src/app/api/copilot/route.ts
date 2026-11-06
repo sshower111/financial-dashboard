@@ -40,7 +40,7 @@ export async function POST(req: Request) {
         for await (const tok of generateStream({ system: COPILOT_SYSTEM, prompt, temperature: 0.3, signal: req.signal })) ctrl.enqueue(enc.encode(tok));
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        if (DEMO_MODE) ctrl.enqueue(enc.encode("The copilot runs on a local LLM (Ollama), so your financial data never leaves your machine. That means it isn't available in this hosted demo.\n\nTo try it: clone the repo, install Ollama, run `ollama pull qwen3.5:9b`, then `npm run dev`, and ask again."));
+        if (DEMO_MODE) ctrl.enqueue(enc.encode("The assistant runs on a local LLM (Ollama), so your financial data never leaves your machine. That means it isn't available in this hosted demo.\n\nTo try it: clone the repo, install Ollama, run `ollama pull qwen3.5:9b`, then `npm run dev`, and ask again."));
         else ctrl.enqueue(enc.encode(`\n\n[Local model unavailable at ${OLLAMA_URL} (${OLLAMA_MODEL}). Start it with \`ollama serve\` and \`ollama pull ${OLLAMA_MODEL}\`. ${msg.slice(0, 160)}]`));
       } finally { ctrl.close(); }
     },

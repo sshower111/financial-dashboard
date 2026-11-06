@@ -47,7 +47,7 @@ export function Copilot() {
           <div className="flex h-full flex-col justify-end gap-2">
             <p className="text-[12px] text-muted">
               {demo && ai.up === false
-                ? <>Ask about your ledger. The copilot runs on a local LLM via Ollama, so it isn&apos;t available in this hosted demo. Run the project locally to try it.</>
+                ? <>Ask about your ledger. The assistant runs on a local LLM via Ollama, so it isn&apos;t available in this hosted demo. Run the project locally to try it.</>
                 : <>Ask about your ledger. Answers come from <span className="num">{ai.model || "the local model"}</span> on this machine. Nothing leaves localhost.</>}
             </p>
             <div className="flex flex-wrap gap-1.5">
@@ -58,7 +58,7 @@ export function Copilot() {
           <div className="flex flex-col gap-4">
             {msgs.map((m, i) => (
               <div key={i} className={m.role === "user" ? "self-end max-w-[85%] border border-line bg-sunk px-3 py-2" : "max-w-full"}>
-                {m.role === "assistant" && <div className="label mb-1">Copilot</div>}
+                {m.role === "assistant" && <div className="label mb-1">Assistant</div>}
                 <div className="text-[13px] leading-relaxed whitespace-pre-wrap">
                   {m.content || <span className="num text-muted">thinking…</span>}
                   {busy && i === msgs.length - 1 && m.content && <span className="ml-0.5 inline-block h-3 w-1.5 translate-y-0.5 bg-accent" />}
