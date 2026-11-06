@@ -2,7 +2,7 @@ import type { FxTable, Transaction } from "../types.ts";
 import { convert } from "./fx.ts";
 import { addDays, todayKey } from "./dates.ts";
 
-const isTransfer = (t: Transaction) => t.category === "Transfer";
+import { isTransfer } from "./transfers.ts";
 
 export interface CashFlow { inflow: number; outflow: number; net: number }
 

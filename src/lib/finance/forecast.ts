@@ -1,3 +1,4 @@
+import { isTransfer } from "./transfers.ts";
 import type { Account, FxTable, Transaction } from "../types.ts";
 import { convert } from "./fx.ts";
 import { addDays, stepCadence, todayKey } from "./dates.ts";
@@ -48,7 +49,7 @@ export function forecastCash(accounts: Account[], txns: Transaction[], fx: FxTab
   const from = addDays(today, -burnWindow);
   let discretionary = 0;
   for (const t of txns) {
-    if (t.date < from || t.date > today || t.amount <= 0 || t.category === "Transfer") continue;
+    if (t.date < from || t.date > today || t.amount <= 0 || isTransfer(t)) continue;
     if (recurringKeys.has(merchantKey(t))) continue;
     discretionary += safe(t.amount, t.iso_currency_code);
   }

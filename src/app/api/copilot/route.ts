@@ -2,6 +2,7 @@ import { DEMO_MODE } from "@/lib/env";
 import { requireUser } from "@/lib/supabase/server";
 import { demoLedger, loadLedger, toLedger } from "@/lib/ledger-load";
 import { scopeLedger, scopeName } from "@/lib/finance/scope";
+import { markTransfers } from "@/lib/finance/transfers";
 import { COPILOT_SYSTEM, buildLedgerContext } from "@/lib/ai/context";
 import { OLLAMA_MODEL, OLLAMA_URL, generateStream } from "@/lib/ai/ollama";
 import type { Currency } from "@/lib/types";
@@ -26,7 +27,7 @@ export async function POST(req: Request) {
   // same filter the dashboard uses; data is already RLS-scoped to the user, this only narrows it
   const sc = typeof scope === "string" ? scope : "all";
   const label = scopeName(sc, data.accounts, data.institutions);
-  data = scopeLedger(data, sc);
+  data = scopeLedger(markTransfers(data), sc);
   const context = (label === "All accounts" ? "" : `Scope: ${label} only. Figures below cover just these accounts.
 `) + buildLedgerContext(toLedger(data, base ?? data.base));
   const history = messages.slice(-7, -1).map((m) => `${m.role === "user" ? "User" : "Copilot"}: ${m.content}`).join("\n");

@@ -20,7 +20,8 @@ const { plaid, ACCOUNT_TYPES, SUPPORTED_CCY } = await import("../src/lib/plaid.t
 const { categorizeWithLLM } = await import("../src/lib/ai/categorize.ts");
 const { ollamaHealthy, OLLAMA_MODEL, OLLAMA_URL } = await import("../src/lib/ai/ollama.ts");
 const { detectAnomalies } = await import("../src/lib/finance/anomaly.ts");
-import type { Transaction } from "../src/lib/types.ts";
+const { markTransfers } = await import("../src/lib/finance/transfers.ts");
+import type { Account, Transaction } from "../src/lib/types.ts";
 import type { RemovedTransaction, Transaction as PlaidTxn } from "plaid";
 
 const db = supabaseAdmin();
@@ -86,10 +87,24 @@ async function syncTransactions(item: Item) {
       cleaned_merchant_name: t.merchant_name ?? null,
     };
   };
-  const rows = [...added, ...modified].map(toRow).filter((r): r is NonNullable<typeof r> => !!r);
-  for (let i = 0; i < rows.length; i += 500) {
-    // category columns are not in the payload, so modified rows keep their AI labels
-    await db.from("transactions").upsert(rows.slice(i, i + 500), { onConflict: "plaid_transaction_id" }).throwOnError();
+  // Plaid already knows card payments / own-account transfers: label new ones "Transfer" up front
+  // (they skip the LLM queue). Only for `added`, so a user's later recategorization is never undone.
+  const plaidTransfer = (t: PlaidTxn) => {
+    const p = t.personal_finance_category?.primary;
+    if (p !== "TRANSFER_IN" && p !== "TRANSFER_OUT" && p !== "LOAN_PAYMENTS") return null;
+    const d = t.personal_finance_category?.detailed ?? "";
+    return d.includes("CREDIT_CARD") ? "Credit card payment" : p === "LOAN_PAYMENTS" ? "Loan payment" : "Between accounts";
+  };
+  const labelled = added.flatMap((t) => {
+    const sub = plaidTransfer(t), r = sub ? toRow(t) : null;
+    return r ? [{ ...r, category: "Transfer", subcategory: sub, ai_confidence_score: 1, ai_tags: ["plaid-pfc"] }] : [];
+  });
+  const labelledIds = new Set(labelled.map((r) => r.plaid_transaction_id));
+  const rows = [...added, ...modified].map(toRow).filter((r): r is NonNullable<typeof r> => !!r && !labelledIds.has(r.plaid_transaction_id));
+  // two upserts with uniform column sets: a mixed batch would null the category on the other rows
+  for (const batch of [rows, labelled]) for (let i = 0; i < batch.length; i += 500) {
+    // category columns are not in `rows`, so modified rows keep their AI labels
+    await db.from("transactions").upsert(batch.slice(i, i + 500), { onConflict: "plaid_transaction_id" }).throwOnError();
   }
   const removedIds = removed.map((r) => r.transaction_id).filter(Boolean);
   if (removedIds.length) await db.from("transactions").delete().in("plaid_transaction_id", removedIds).throwOnError();
@@ -216,7 +231,8 @@ async function scanAnomalies() {
     const since = new Date(Date.now() - 200 * 86_400_000).toISOString().slice(0, 10);
     const { data } = await db.from("transactions").select("*").eq("user_id", userId).gte("date", since);
     const txns = (data ?? []).map((t) => ({ ...t, amount: Number(t.amount) })) as Transaction[];
-    const found = detectAnomalies(txns);
+    const { data: accts } = await db.from("accounts").select("id,type").eq("user_id", userId);
+    const found = detectAnomalies(markTransfers({ accounts: (accts ?? []) as Account[], transactions: txns }).transactions);
     const kindsById = new Map<string, string[]>();
     for (const a of found) (kindsById.get(a.transactionId) ?? kindsById.set(a.transactionId, []).get(a.transactionId)!).push(`anomaly:${a.kind}`);
     let changed = 0;

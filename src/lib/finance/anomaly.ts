@@ -1,3 +1,4 @@
+import { isTransfer } from "./transfers.ts";
 import type { Transaction } from "../types.ts";
 import { addDays, daysBetween, median, todayKey } from "./dates.ts";
 import { detectRecurring, merchantKey } from "./recurring.ts";
@@ -25,7 +26,8 @@ export function detectAnomalies(txns: Transaction[], opts: { lookbackDays?: numb
   const out: Anomaly[] = [];
   const flagged = new Set<string>();
   const push = (a: Anomaly) => { const k = `${a.transactionId}|${a.kind}`; if (!flagged.has(k)) { flagged.add(k); out.push(a); } };
-  const settled = txns.filter((t) => !t.is_pending);
+  // card payments / own-account moves are never "leakage" (and repeat on purpose)
+  const settled = txns.filter((t) => !t.is_pending && !isTransfer(t));
 
   // 1. duplicates: same account + merchant + amount within 1 day
   const byKey = new Map<string, Transaction[]>();

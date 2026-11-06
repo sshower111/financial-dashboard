@@ -1,3 +1,4 @@
+import { isTransfer } from "./transfers.ts";
 import type { Transaction } from "../types.ts";
 import { daysBetween, median, parseKey, stepCadence } from "./dates.ts";
 
@@ -32,7 +33,7 @@ const CADENCES = [7, 14, 15, 30, 91, 365];
 export function detectRecurring(txns: Transaction[], today: string): RecurringStream[] {
   const groups = new Map<string, Transaction[]>();
   for (const t of txns) {
-    if (t.is_pending || t.category === "Transfer") continue;
+    if (t.is_pending || isTransfer(t)) continue;
     const k = `${merchantKey(t)}|${t.amount < 0 ? "in" : "out"}|${t.iso_currency_code}`;
     (groups.get(k) ?? groups.set(k, []).get(k)!).push(t);
   }

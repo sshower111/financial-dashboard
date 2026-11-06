@@ -1,5 +1,6 @@
 import { CATEGORIES, type Category } from "../types.ts";
 import { generate } from "./ollama.ts";
+import { TRANSFER_RE } from "../finance/transfers.ts";
 
 export interface CategorizeInput { id: string; raw: string; amount: number; currency: string; merchantHint?: string | null }
 export interface CategorizeResult { id: string; merchant: string; category: Category; subcategory: string; confidence: number; tags: string[]; source: "llm" | "rules" }
@@ -58,8 +59,10 @@ export async function categorizeWithLLM(items: CategorizeInput[], timeoutMs = 30
 
 const RULES: [RegExp, Category, string, string[]?][] = [
   [/payroll|direct dep|salary/i, "Income", "Payroll", ["salary"]],
-  [/stripe transfer|received from|zelle from|deposit/i, "Income", "Deposit"],
-  [/ach pmt|bill pymt|payment - thank|autopay|transfer/i, "Transfer", "Transfer"],
+  [/stripe transfer/i, "Income", "Deposit"],
+  // before the generic income rule: a card's "PAYMENT - THANK YOU" credit is not income
+  [TRANSFER_RE, "Transfer", "Transfer"],
+  [/received from|zelle from|deposit/i, "Income", "Deposit"],
   [/rent|greystar|prop mgmt|mortgage/i, "Housing", "Rent", ["fixed"]],
   [/con ed|pg&e|duke energy|comcast|xfinity|verizon|t-mobile|at&t/i, "Utilities", "Utilities", ["fixed"]],
   [/trader joe|wholefds|whole foods|costco|safeway|kroger|publix|wegmans|aldi|h-e-b/i, "Groceries", "Supermarket"],

@@ -6,7 +6,7 @@ import { budgetPacing } from "./pacing.ts";
 import { forecastCash } from "./forecast.ts";
 import { detectAnomalies } from "./anomaly.ts";
 import { detectRecurring } from "./recurring.ts";
-import { cashFlowDelta } from "./cashflow.ts";
+import { cashFlow, cashFlowDelta, spendByCategory } from "./cashflow.ts";
 import { demoAccounts, demoBudgets, demoFx, demoTransactions } from "../demo.ts";
 import type { Account, Transaction } from "../types.ts";
 
@@ -113,4 +113,32 @@ test("scope: institution / account / person filter accounts, transactions and ho
   const partner = scopeLedger(d, "person:Partner");
   assert.deepEqual(partner.accounts.map((a) => a.id).sort(), ["acc-amex", "acc-schwab"]);
   assert.ok(partner.holdings.every((h) => h.account_id === "acc-schwab"));
+});
+
+test("transfers: a card payment counts once as neither spending nor income, both legs excluded", async () => {
+  const { markTransfers } = await import("./transfers.ts");
+  const fx = buildFxTable(demoFx, "USD");
+  const base = { iso_currency_code: "USD", subcategory: null, cleaned_merchant_name: null, ai_confidence_score: null, ai_tags: [], is_anomaly: false, is_pending: false, created_at: "2026-10-01T00:00:00Z" };
+  const txns = [
+    // bank leg: mislabelled by the LLM as a bill; card leg: still queued (null)
+    { ...base, id: "out", account_id: "acc-chase-chk", amount: 500, date: "2026-10-03", raw_merchant_string: "AMEX EPAYMENT ACH PMT", category: "Utilities" },
+    { ...base, id: "in", account_id: "acc-amex", amount: -500, date: "2026-10-05", raw_merchant_string: "ONLINE PAYMENT", category: null },
+    // card leg whose paying account isn't linked: caught by wording
+    { ...base, id: "solo", account_id: "acc-chase-cc", amount: -120, date: "2026-10-06", raw_merchant_string: "PAYMENT THANK YOU", category: "Income" },
+    // chequing → savings, one leg recognisable
+    { ...base, id: "s-out", account_id: "acc-chase-chk", amount: 300, date: "2026-10-07", raw_merchant_string: "ONLINE TRANSFER TO SAV ...4821", category: null },
+    { ...base, id: "s-in", account_id: "acc-chase-sav", amount: -300, date: "2026-10-07", raw_merchant_string: "ONLINE TRANSFER FROM CHK ...1180", category: null },
+    // NOT a transfer: paycheque and an equal card purchase on different accounts
+    { ...base, id: "pay", account_id: "acc-chase-chk", amount: -900, date: "2026-10-08", raw_merchant_string: "NORTHWIND LABS PAYROLL", category: "Income" },
+    { ...base, id: "buy", account_id: "acc-amex", amount: 900, date: "2026-10-08", raw_merchant_string: "APPLE STORE", category: "Shopping" },
+  ] as Parameters<typeof cashFlow>[0];
+  const marked = markTransfers({ accounts: demoAccounts, transactions: txns }).transactions;
+  const cat = Object.fromEntries(marked.map((t) => [t.id, t.category]));
+  assert.deepEqual(cat, { out: "Transfer", in: "Transfer", solo: "Transfer", "s-out": "Transfer", "s-in": "Transfer", pay: "Income", buy: "Shopping" });
+  assert.equal(marked.find((t) => t.id === "in")!.subcategory, "Credit card payment");
+  const cf = cashFlow(marked, fx, "2026-10-01", "2026-10-31");
+  assert.equal(cf.outflow, 900);
+  assert.equal(cf.inflow, 900);
+  assert.deepEqual(spendByCategory(marked, fx, "2026-10-01", "2026-10-31"), [{ category: "Shopping", amount: 900 }]);
+  assert.equal(txns[0].category, "Utilities", "input is not mutated");
 });

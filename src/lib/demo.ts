@@ -95,6 +95,7 @@ export function demoTransactions(now = new Date(), days = 150): Transaction[] {
     if (dom === 11) add(d, 34.99, { acct: "acc-chase-chk", raw: "EQUINOX FITNESS 0042", clean: "Equinox", cat: "Health", sub: "Gym", tags: ["subscription"] });
     if (dom === 27) add(d, -1350, { acct: "acc-wise-eur", raw: "RECEIVED FROM STUDIO NORD GMBH", clean: "Studio Nord GmbH", cat: "Income", sub: "Freelance", ccy: "EUR", tags: ["freelance"] });
     if (dom === 3) add(d, 1600, { acct: "acc-chase-chk", raw: "AMERICAN EXPRESS ACH PMT", clean: "Amex payment", cat: "Transfer", sub: "Credit card payment" });
+    if (dom === 4) add(d, -1600, { acct: "acc-amex", raw: "PAYMENT RECEIVED - THANK YOU", clean: "Amex payment", cat: "Transfer", sub: "Credit card payment" });
     // discretionary
     for (const s of DISCRETIONARY) if (r() < s.p) add(d, s.min + r() * (s.max - s.min), s);
   }
