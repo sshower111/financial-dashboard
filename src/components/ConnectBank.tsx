@@ -14,9 +14,9 @@ export function ConnectBank() {
   const onSuccess = useCallback(async (public_token: string | null) => {
     if (!public_token) return;
     setMsg("Linking…");
-    const r = await fetch("/api/plaid/exchange", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ public_token }) });
+    const r = await fetch("/api/plaid/exchange", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ public_token, dashboard: useLedger.getState().dashboard }) });
     const j = await r.json();
-    setMsg(r.ok ? `${j.institution}: ${j.accounts} accounts linked` : j.error);
+    setMsg(r.ok ? `${j.institution}: ${j.accounts} account${j.accounts === 1 ? "" : "s"} linked${j.skipped ? ` (${j.skipped} already linked, skipped)` : ""}` : j.error);
     if (r.ok) window.dispatchEvent(new Event(SYNC_KICK));
     if (r.ok) useLedger.getState().pushEvent({ kind: "synced", text: `Linked ${j.institution} — worker is importing history` });
     setToken(null);

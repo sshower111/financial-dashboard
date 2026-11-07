@@ -18,7 +18,7 @@ const num = (v: unknown) => (v == null ? null : Number(v));
 export async function loadLedger(sb: SupabaseClient, days = 180): Promise<LedgerData> {
   const since = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
   const [ins, acc, tx, hold, bud, fx, settings] = await Promise.all([
-    sb.from("institutions").select("id,name,country"),
+    sb.from("institutions").select("id,name,country,created_at").order("created_at"),
     sb.from("accounts").select("*").eq("is_active", true),
     sb.from("transactions").select("*").gte("date", since).order("date", { ascending: false }).order("created_at", { ascending: false }).limit(5000),
     sb.from("investment_holdings").select("*"),

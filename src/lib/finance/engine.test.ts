@@ -186,3 +186,27 @@ test("categorizeWithLLM: short ids map back to rows; missing items omitted or ru
     assert.deepEqual(filled.map((r) => r.source), ["rules", "llm"]);
   } finally { globalThis.fetch = real; }
 });
+
+test("re-link detection: same bank login matches one-to-one by type + last 4; new accounts don't", async () => {
+  const { matchExisting } = await import("../link-dedupe.ts");
+  const existing = [
+    { id: "e1", name: "TOTAL CHECKING", type: "depository", subtype: "checking", mask: "1180" },
+    { id: "e2", name: "Ultimate Rewards", type: "credit", subtype: "credit card", mask: "4421" },
+    { id: "e3", name: "Ultimate Rewards", type: "credit", subtype: "credit card", mask: "9032" },
+    { id: "e4", name: "BUS COMPLETE CHK", type: "depository", subtype: "checking", mask: null }, // linked before 0005
+  ];
+  const incoming = [
+    { account_id: "n1", name: "TOTAL CHECKING", type: "depository", subtype: "checking", mask: "1180" },
+    { account_id: "n2", name: "Ultimate Rewards", type: "credit", subtype: "credit card", mask: "9032" },
+    { account_id: "n3", name: "Ultimate Rewards", type: "credit", subtype: "credit card", mask: "4421" },
+    { account_id: "n4", name: "BUS COMPLETE CHK", type: "depository", subtype: "checking", mask: "7765" },
+    { account_id: "n5", name: "Ultimate Rewards", type: "credit", subtype: "credit card", mask: "0007" }, // newly opened card
+  ];
+  const m = matchExisting(incoming, existing);
+  assert.deepEqual(Object.fromEntries([...m].map(([k, v]) => [k, v.id])), { n1: "e1", n2: "e3", n3: "e2", n4: "e4" });
+  assert.ok(!m.has("n5"), "a new card with a different last 4 is imported");
+
+  // a family member's separate login with identically named accounts is NOT a duplicate
+  const theirs = [{ account_id: "f1", name: "TOTAL CHECKING", type: "depository", subtype: "checking", mask: "5555" }];
+  assert.equal(matchExisting(theirs, existing).size, 0);
+});

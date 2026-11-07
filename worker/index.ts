@@ -16,7 +16,9 @@ import { existsSync } from "node:fs";
 for (const f of [".env.local", ".env"]) if (existsSync(f)) loadEnvFile(f);
 
 const { supabaseAdmin } = await import("../src/lib/supabase/admin.ts");
-const { plaid, assignDashboards, ACCOUNT_TYPES, SUPPORTED_CCY } = await import("../src/lib/plaid.ts");
+const { plaid, ACCOUNT_TYPES, SUPPORTED_CCY } = await import("../src/lib/plaid.ts");
+const { matchExisting } = await import("../src/lib/link-dedupe.ts");
+const { guessDashboard } = await import("../src/lib/finance/scope.ts");
 const { categorizeWithLLM, categorizeWithRules } = await import("../src/lib/ai/categorize.ts");
 const { cacheKey } = await import("../src/lib/ai/merchant.ts");
 const { hasModel, ollamaModels, OLLAMA_CATEGORIZE_MODEL, OLLAMA_MODEL, OLLAMA_URL } = await import("../src/lib/ai/ollama.ts");
@@ -32,24 +34,48 @@ const JOB_BATCH = 10;
 const MAX_ATTEMPTS = 8;
 const log = (...a: unknown[]) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
-interface Item { id: string; user_id: string; access_token: string; cursor: string | null; country: string }
+interface Item { id: string; user_id: string; access_token: string; cursor: string | null; country: string; plaid_institution_id: string }
 
 async function itemFor(itemId: string): Promise<Item | null> {
-  const { data } = await db.from("institutions").select("id,user_id,access_token,cursor,country").eq("plaid_item_id", itemId).maybeSingle();
+  const { data } = await db.from("institutions").select("id,user_id,access_token,cursor,country,plaid_institution_id").eq("plaid_item_id", itemId).maybeSingle();
   return data as Item | null;
 }
 
 async function refreshAccounts(item: Item) {
   const { data } = await plaid().accountsGet({ access_token: item.access_token });
   const rows = data.accounts.map((a) => ({
-    institution_id: item.id, user_id: item.user_id, plaid_account_id: a.account_id,
+    institution_id: item.id, user_id: item.user_id, plaid_account_id: a.account_id, mask: a.mask ?? null,
     name: a.official_name || a.name, type: ACCOUNT_TYPES.has(a.type) ? a.type : "other", subtype: a.subtype ?? "",
     currency: a.balances.iso_currency_code ?? a.balances.unofficial_currency_code ?? (item.country === "CA" ? "CAD" : "USD"),
     current_balance: a.balances.current, available_balance: a.balances.available, limit_amount: a.balances.limit,
   })).filter((a) => SUPPORTED_CCY.has(a.currency));
-  if (rows.length) {
-    await db.from("accounts").upsert(rows, { onConflict: "plaid_account_id" }).throwOnError();
-    await assignDashboards(db, data.accounts);
+  const { data: mine } = await db.from("accounts").select("plaid_account_id,owner_label").eq("institution_id", item.id);
+  const known = new Set((mine ?? []).map((a) => a.plaid_account_id as string));
+  // known accounts: refresh balances (and backfill mask, migration 0005)
+  const update = rows.filter((r) => known.has(r.plaid_account_id));
+  if (update.length) await db.from("accounts").upsert(update, { onConflict: "plaid_account_id" }).throwOnError();
+  // accounts this item hasn't stored: skip ones already linked through another connection to the same
+  // bank (re-links), add genuinely new ones on the dashboard this bank's accounts are on
+  let fresh = rows.filter((r) => !known.has(r.plaid_account_id));
+  if (fresh.length) {
+    const { data: others } = await db.from("institutions").select("id").eq("user_id", item.user_id).eq("plaid_institution_id", item.plaid_institution_id).neq("id", item.id);
+    const otherIds = (others ?? []).map((o) => o.id as string);
+    if (otherIds.length) {
+      const { data: existing } = await db.from("accounts").select("name,type,subtype,mask").in("institution_id", otherIds);
+      const dupes = matchExisting(fresh.map((r) => ({ ...r, account_id: r.plaid_account_id })), existing ?? []);
+      fresh = fresh.filter((r) => !dupes.has(r.plaid_account_id));
+    }
+  }
+  if (fresh.length) {
+    const counts = new Map<string, number>();
+    for (const a of mine ?? []) if (a.owner_label) counts.set(a.owner_label, (counts.get(a.owner_label) ?? 0) + 1);
+    const sibling = [...counts.entries()].sort((x, y) => y[1] - x[1])[0]?.[0];
+    const plaidById = new Map(data.accounts.map((a) => [a.account_id, a]));
+    await db.from("accounts").insert(fresh.map((r) => {
+      const pa = plaidById.get(r.plaid_account_id)!;
+      return { ...r, owner_label: sibling ?? guessDashboard({ name: r.name, official_name: pa.official_name, holder_category: (pa as { holder_category?: string | null }).holder_category }) };
+    })).throwOnError();
+    log(`item ${item.id.slice(0, 8)}: ${fresh.length} new account(s) added`);
   }
   return rows;
 }

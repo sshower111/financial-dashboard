@@ -5,6 +5,7 @@ export interface Institution {
   id: string;
   name: string;
   country: "US" | "CA";
+  created_at?: string;
 }
 
 export interface Account {
