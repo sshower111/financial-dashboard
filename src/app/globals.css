@@ -68,6 +68,8 @@ body { font-family: var(--font-sans); font-size: 13px; line-height: 1.45; -webki
 .tbl tr:last-child td { border-bottom: 0; }
 .tbl .r { text-align: right; }
 .tbl tbody tr:hover td { background: var(--bg-sunk); }
+/* narrow panels (container query on the panel body): tighter cells so numbers fit without side-scrolling */
+@container (max-width: 28rem) { .tbl th, .tbl td { padding-left: 6px; padding-right: 6px; } }
 
 /* dashboard grid: spans only apply once there are 12 columns */
 .dash-grid > .panel { grid-row: span var(--h); }

@@ -60,7 +60,7 @@ export function Feed() {
       {!rows.length && <Empty>No transactions in this date range.</Empty>}
       <div className="scroll-thin min-h-0 flex-1 overflow-auto">
         <table className="tbl tbl-fixed">
-          <thead><tr><th className="w-16">Date</th><th>Merchant</th><th className="hidden w-[30%] lg:table-cell">Category</th><th className="hidden w-[20%] xl:table-cell">Account</th><th className="r w-32">Amount</th></tr></thead>
+          <thead><tr><th className="w-16">Date</th><th>Merchant</th><th className="hidden w-[30%] @2xl:table-cell">Category</th><th className="hidden w-[20%] @4xl:table-cell">Account</th><th className="r w-32">Amount</th></tr></thead>
           <tbody>
             <AnimatePresence initial={false}>
               {rows.map((t) => {
@@ -79,14 +79,14 @@ export function Feed() {
                         <div className="num wrap text-[11px] text-muted">{t.raw_merchant_string}</div>
                       )}
                     </td>
-                    <td className="hidden wrap text-ink-2 lg:table-cell">
+                    <td className="hidden wrap text-ink-2 @2xl:table-cell">
                       {queued ? <span className="num text-[11px] text-muted">queued for AI…</span> : (
                         <span>{t.category}{t.subcategory ? <span className="text-muted"> · {t.subcategory}</span> : null}
                           {t.ai_confidence_score != null && <span className="num ml-2 text-[11px] text-muted">{t.ai_confidence_score.toFixed(2)}</span>}
                         </span>
                       )}
                     </td>
-                    <td className="hidden wrap text-muted xl:table-cell">{acct.get(t.account_id)}</td>
+                    <td className="hidden wrap text-muted @4xl:table-cell">{acct.get(t.account_id)}</td>
                     <td className="r"><Money value={-t.amount} ccy={t.iso_currency_code} sign /></td>
                   </motion.tr>
                 );

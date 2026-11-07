@@ -46,15 +46,15 @@ export function Pacing() {
         <div className="col-span-2"><Bar used={p.total.used} progress={p.monthProgress} over={p.total.status === "over"} /></div>
       </div>
       <table className="tbl text-[12px]">
-        <thead><tr><th>Category</th><th className="w-[30%]" /><th className="r">Spent / limit</th><th className="r">Pace</th><th className="w-6" /></tr></thead>
+        <thead><tr><th>Category</th><th className="hidden w-[30%] @md:table-cell" /><th className="r">Spent / limit</th><th className="r">Pace</th><th className="w-6" /></tr></thead>
         <tbody>
           {p.rows.map((r) => {
             const b = mine.find((x) => x.category === r.category)!;
             return (
               <tr key={r.category} className="group">
                 <td>{r.category}</td>
-                <td><Bar used={r.used} progress={p.monthProgress} over={r.status === "over"} /></td>
-                <td className="r num whitespace-nowrap">{money(r.spent, { dp: 0 })}<span className="text-muted"> / {money(r.limit, { dp: 0 })}</span></td>
+                <td className="hidden @md:table-cell"><Bar used={r.used} progress={p.monthProgress} over={r.status === "over"} /></td>
+                <td className="r num"><span className="whitespace-nowrap">{money(r.spent, { dp: 0 })}</span> <span className="whitespace-nowrap text-muted">/ {money(r.limit, { dp: 0 })}</span></td>
                 <td className={`r num ${r.status === "over" ? "text-accent" : r.status === "under" ? "text-muted" : ""}`}>{r.velocity.toFixed(2)}×</td>
                 <td className="r"><button className="text-muted opacity-0 group-hover:opacity-100 hover:text-accent" title="Remove budget" onClick={async () => { await deleteBudget(b.id); useLedger.getState().setBudgets(data.budgets.filter((x) => x.id !== b.id)); }}><X size={12} /></button></td>
               </tr>

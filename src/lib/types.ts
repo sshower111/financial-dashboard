@@ -6,6 +6,7 @@ export interface Institution {
   name: string;
   country: "US" | "CA";
   created_at?: string;
+  plaid_institution_id?: string;
 }
 
 export interface Account {
@@ -21,6 +22,8 @@ export interface Account {
   is_active: boolean;
   /** person this account belongs to (migration 0003); null = unassigned */
   owner_label?: string | null;
+  /** last 4 digits (migration 0005) */
+  mask?: string | null;
 }
 
 /** Plaid sign convention: amount > 0 is money leaving the account. */

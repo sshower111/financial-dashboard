@@ -11,7 +11,7 @@ export function Recurring() {
   const streams = d.forecast.streams;
   return (
     <table className="tbl tbl-fixed text-[12px]">
-      <thead><tr><th className="w-16">Next</th><th>Stream</th><th className="r w-28">Amount</th></tr></thead>
+      <thead><tr><th className="w-16">Next</th><th>Stream</th><th className="r w-24">Amount</th></tr></thead>
       <tbody>
         {streams.map((s) => (
           <tr key={s.key}>

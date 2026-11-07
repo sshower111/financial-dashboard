@@ -51,7 +51,7 @@ export function DashboardTabs() {
   const empty = (id: string) => !data.accounts.some((a) => dashboardOf(a) === id);
 
   return (
-    <nav role="tablist" aria-label="Dashboards" className="flex h-7 items-stretch border border-line text-[12px]">
+    <nav role="tablist" aria-label="Dashboards" className="flex min-h-7 flex-wrap items-stretch border border-line text-[12px]">
       {list.map((d) => d.id === renaming ? (
         <span key={d.id} className="flex items-center border-r border-line">
           <input autoFocus defaultValue={d.name} maxLength={40} aria-label="Dashboard name"
@@ -68,7 +68,7 @@ export function DashboardTabs() {
         <button key={d.id} role="tab" aria-selected={d.id === active}
           onClick={() => (d.id === active ? setRenaming(d.id) : s.setDashboard(d.id))}
           title={d.id === active ? "Click to rename" : `Open ${d.name}`}
-          className={`max-w-[12rem] truncate border-r border-line px-2.5 ${d.id === active ? "bg-accent text-accent-ink" : "text-muted hover:text-ink"}`}>
+          className={`whitespace-nowrap border-r border-line px-2.5 ${d.id === active ? "bg-accent text-accent-ink" : "text-muted hover:text-ink"}`}>
           {d.name}
         </button>
       ))}

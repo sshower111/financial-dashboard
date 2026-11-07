@@ -12,13 +12,13 @@ export function Holdings() {
   const total = rows.reduce((s, r) => s + r.base, 0);
   return (
     <table className="tbl">
-      <thead><tr><th>Ticker</th><th className="r">Qty</th><th className="r hidden sm:table-cell">Price</th><th className="r">Value</th><th className="r">Weight</th></tr></thead>
+      <thead><tr><th>Ticker</th><th className="r hidden @md:table-cell">Qty</th><th className="r hidden @lg:table-cell">Price</th><th className="r">Value</th><th className="r">Weight</th></tr></thead>
       <tbody>
         {rows.map((h) => (
           <tr key={h.id}>
             <td className="max-w-0"><div className="num">{h.ticker}</div><div className="wrap text-[11px] text-muted">{h.name}</div></td>
-            <td className="r num">{h.quantity.toLocaleString("en-US", { maximumFractionDigits: 4 })}</td>
-            <td className="r hidden sm:table-cell"><Money value={h.institution_price} ccy={h.currency} /></td>
+            <td className="r num hidden @md:table-cell">{h.quantity.toLocaleString("en-US", { maximumFractionDigits: 4 })}</td>
+            <td className="r hidden @lg:table-cell"><Money value={h.institution_price} ccy={h.currency} /></td>
             <td className="r"><Money value={h.institution_value} ccy={h.currency} /></td>
             <td className="r">
               <div className="flex items-center justify-end gap-2">

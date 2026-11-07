@@ -40,7 +40,8 @@ export function Panel({ item, right, children }: { item: LayoutItem; right?: Rea
           ) : right}
         </div>
       </header>
-      <div className="scroll-thin min-h-0 flex-1 overflow-auto">{children}</div>
+      {/* @container: widgets size their columns to the panel's own width, not the window's */}
+      <div className="scroll-thin @container min-h-0 flex-1 overflow-auto">{children}</div>
     </section>
   );
 }
