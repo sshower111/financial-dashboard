@@ -1,6 +1,6 @@
 # Financial Dashboard — notes for Claude
 
-Real-time personal finance dashboard: Plaid → Supabase → background worker (local Ollama LLM) → Next.js UI over Supabase Realtime. The README covers features and architecture; this file covers working on the code.
+Real-time personal finance dashboard: Plaid → Supabase → background worker (local Ollama LLM) → Next.js UI over Supabase Realtime. The README covers features and architecture; this file covers working on the code; **`docs/HANDOFF.md`** covers running it, current status, what's verified and open items.
 
 ## Commands
 
@@ -22,7 +22,7 @@ The owner works on **Windows PowerShell 5.1**: `&&` doesn't work there. Give com
 - `worker/index.ts`: queue = `webhook_logs` (processed=false, backoff by `attempts`). Run **one** instance only.
 - `src/components/LiveSync.tsx`: initial load, Realtime subscription (sets the JWT with `realtime.setAuth` **before** subscribing; otherwise RLS silently drops events), the demo simulator, and layout persistence.
 - `src/lib/demo.ts`: deterministic US demo ledger (seeded per calendar day). `engine.test.ts` asserts on its merchant names.
-- `supabase/migrations/`: 0001 init, 0002 USD defaults, 0003 `accounts.owner_label`, 0004 dashboards (applied to the live project), 0005 `accounts.mask` (check whether applied).
+- `supabase/migrations/`: 0001 init, 0002 USD defaults, 0003 `accounts.owner_label`, 0004 dashboards (applied to the live project), 0005 `accounts.mask` (confirm applied; see HANDOFF §4).
 - **Dashboards** (`src/lib/finance/scope.ts`, `DashboardTabs.tsx`): separate dashboards (Personal / Business / user-added), no combined view. Stable id in `accounts.owner_label`, `budgets.dashboard`, `dashboard_layouts.dashboard`; names in `user_settings.dashboards` (rename = settings only). `useScopedData()` in `src/store/derived.ts` is the only filter: panels never read `s.data` for accounts/transactions; `/api/copilot` applies the same `scopeLedger`. Linking puts new accounts on the open dashboard; accounts the worker discovers later go where that bank's other accounts are (else `guessDashboard()`).
 - **Re-link dedupe** (`src/lib/link-dedupe.ts`): a new Plaid item for a bank already linked only stores accounts that don't match existing ones (type + subtype + mask, name fallback); if none are new the item is removed at Plaid (409). The worker applies the same check before inserting accounts. `/api/plaid/remove` unlinks a bank (Plaid item/remove + cascade delete); UI under Edit layout → Accounts → Linked banks.
 
@@ -36,19 +36,19 @@ The owner works on **Windows PowerShell 5.1**: `&&` doesn't work there. Give com
 - **Commits**: the author email must be the GitHub noreply address, or GitHub rejects the push (GH007):
   `git config user.email "28240293+sshower111@users.noreply.github.com"` and `git config user.name "sshower111"`.
 
-## Current state (as of 2026-11-05)
+## Current state (as of 2026-11-07)
 
 - **GitHub**: https://github.com/sshower111/financial-dashboard (public, `main`).
 - **Live demo**: https://financial-dashboard-sshower.vercel.app, a Vercel project `financial-dashboard` that auto-deploys from `main`. It has **no env vars**, so it runs in demo mode. Keep it that way: adding Supabase keys there would expose a login to the real database.
-- **Supabase**: project `financial-dashboard` (renamed from `ledger`), ref `vvsxskhbtrgrucnqszzf`, region ca-central-1, free plan. Free projects pause after about a week idle; restore from the dashboard. Migrations 0001 and 0002 are applied; 0003 is written, apply it in the SQL editor. Sandbox test data was deleted. One user, the owner.
-- **Plaid**: sandbox tested end to end (link → sync of 217 transactions and 13 holdings → categorization → live feed).
+- **Supabase**: project `financial-dashboard` (renamed from `ledger`), ref `vvsxskhbtrgrucnqszzf`, region ca-central-1, free plan. Free projects pause after about a week idle; restore from the dashboard. Migrations 0001–0004 are applied; confirm 0005. One user, the owner.
+- **Plaid**: production, `PLAID_COUNTRY_CODES=US,CA`, real US and CA banks and brokerages linked. The owner runs `npm start` + `npm run worker` + an ngrok static domain and uses the app only through that HTTPS domain (never commit the domain).
 - **Verified**: Realtime delivers inserts and updates to the browser in about 1 second (Playwright against the live project, with a throwaway user that was deleted afterwards).
 
 ## Open items
 
 1. Disable "Allow new users to sign up" in Supabase Auth before exposing the app over ngrok (confirm with the owner whether it's done).
-2. Plaid production access: `PLAID_ENV=production`, an ngrok static domain, `PLAID_REDIRECT_URI=https://<domain>/oauth` registered in the Plaid dashboard, `PLAID_WEBHOOK_URL=https://<domain>/api/plaid/webhook`. The owner must use the app through that HTTPS domain, since auth cookies are per-domain, and add `https://<domain>/auth/callback` to Supabase redirect URLs.
-3. Production OAuth and the webhook path haven't been run against real Plaid yet. Watch the worker logs on the first real link.
+2. Not yet checked against real data: the live sync-progress indicator, the cached/batched categorization path, and the duplicate flag + Remove after b2be63f (see HANDOFF §6).
+3. Open question: a "session" label the owner saw in Live activity is not in the code; probably a raw bank string or AI subcategory.
 4. Roadmap: Plaid Link update mode (`ITEM_LOGIN_REQUIRED`), encrypting access tokens (Supabase Vault), safe concurrent workers (`FOR UPDATE SKIP LOCKED` via an RPC), CSV import for brokers Plaid doesn't cover.
 5. Categorization: merchant cache first (in-memory, built from categorized rows, keyed by `merchantKey()` in `src/lib/ai/merchant.ts`), then up to `CATEGORIZE_BATCH`=50 deduped merchants per call to `OLLAMA_CATEGORIZE_MODEL` (default `qwen2.5:1.5b`, falls back to `OLLAMA_MODEL`). Failing batches split in half; a merchant failing 3 times gets the regex rules.
 

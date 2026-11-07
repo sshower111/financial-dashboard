@@ -45,8 +45,11 @@ The demo streams a new raw bank string (`SQ *BLUE BOTTLE COFFEE 4821`) every 10�
 | **Leak detection** | Duplicate charges, subscription price hikes, bank fees and unusual amounts, with the total at stake. |
 | **Wallet weather** | A 30-day cash projection from detected paycheques, bills, card balances and spending rate, summarized as Clear / Overcast / Storm. |
 | **Budget pacing** | Spend velocity against the day of the month (`1.00×` is on pace), so overspending shows up on day 5, not day 30. |
-| **Copilot** | Ask "Why was my burn rate higher this week?" and get a streamed answer from the local model, grounded in your ledger. |
-| **Custom layout** | Drag, resize, add and remove panels. The layout is saved per user as JSON. |
+| **Separate dashboards** | Personal, Business, or any you add and name yourself, shown as tabs. Each has its own accounts, budgets and layout; nothing is mixed. Accounts linked while a tab is open land on that tab. |
+| **Transfers counted once** | Card payments and moves between your own accounts are paired across accounts and excluded from spending and cash flow, so a payment isn't counted as both spending and income. |
+| **Assistant** | Ask "Why was my burn rate higher this week?" and get a streamed answer from the local model, grounded in the open dashboard's data. |
+| **Custom layout** | Drag, resize, add and remove panels; panels adapt to their own width. Saved per dashboard. |
+| **Safe re-linking** | Linking a bank that's already connected imports only accounts that are actually new (matched by type and last 4 digits); duplicate connections can be removed from the app. |
 
 ## Engineering highlights
 
@@ -54,7 +57,8 @@ The demo streams a new raw bank string (`SQ *BLUE BOTTLE COFFEE 4821`) every 10�
 - **Non-blocking ingestion pipeline.** The Plaid webhook endpoint verifies the ES256 JWT signature and the body's SHA-256, writes a job and returns immediately. A worker drains the queue: cursor-based `/transactions/sync` (handling mutation-during-pagination restarts), balances, holdings, batched LLM categorization with JSON-schema output, then anomaly detection. Each stage has bounded retries with backoff, and the UI updates over Supabase Realtime.
 - **Defense in depth on financial data.** Every table has row-level security, and Postgres **column-level grants** keep Plaid access tokens unreadable from the browser even for the token's owner. Clients can't insert bank-sourced rows, which closes a gap RLS alone leaves open: a foreign key doesn't check ownership. Verified with cross-user tests on a real Postgres engine.
 - **Correct money math.** Currencies are never mixed implicitly: a missing FX rate excludes the account and surfaces a warning instead of silently assuming 1:1. Recurring-stream detection steps monthly bills by calendar month, not 30 days. All amounts render in tabular monospace.
-- **Tested core.** Net worth, FX bridging, pacing, recurring detection, forecasting and anomaly rules are pure functions with unit tests (`npm test`), shared by the UI, the worker and the copilot.
+- **Fast local categorization.** The worker checks a merchant cache first (normalized merchant strings already categorized), dedupes the rest by merchant, and sends up to 50 per structured-JSON call to a small model (`qwen2.5:1.5b` by default). Failing batches are split and retried; a merchant that keeps failing falls back to keyword rules, so the queue never stalls.
+- **Tested core.** Net worth, FX bridging, pacing, recurring detection, forecasting, anomaly rules, transfer pairing, dashboard scoping and re-link matching are pure functions with unit tests (`npm test`), shared by the UI, the worker and the assistant.
 - **Verified end-to-end.** Driven with Playwright against a live Supabase project: a row inserted in the database appeared in a signed-in browser in about 1 second without a reload, while another user's data stayed invisible.
 
 ## Architecture
@@ -76,7 +80,7 @@ flowchart LR
 
 ## Tech stack
 
-**Frontend:** Next.js 16 (App Router), React 19, Tailwind CSS v4, Zustand, Recharts, Framer Motion, Lucide · **Backend:** Next.js route handlers, Node worker (`tsx`) · **Data:** Supabase (Postgres, RLS, Realtime, magic-link auth) · **Integrations:** Plaid (Transactions, Investments), Ollama (`qwen3.5:9b` by default), Frankfurter (ECB exchange rates) · **Testing:** `node:test`, Playwright
+**Frontend:** Next.js 16 (App Router), React 19, Tailwind CSS v4, Zustand, Recharts, Framer Motion, Lucide · **Backend:** Next.js route handlers, Node worker (`tsx`) · **Data:** Supabase (Postgres, RLS, Realtime, magic-link auth) · **Integrations:** Plaid (Transactions, Investments), Ollama (`qwen3.5:9b` for the assistant, `qwen2.5:1.5b` for categorization), Frankfurter (ECB exchange rates) · **Testing:** `node:test`, Playwright
 
 ## Connect real accounts
 
@@ -108,7 +112,7 @@ npm run typecheck
 ---
 
 <details>
-<summary><b>Technical deep dive</b>: finance engine, copilot, database design</summary>
+<summary><b>Technical deep dive</b>: finance engine, assistant, database design</summary>
 
 ## Finance engine (`src/lib/finance`)
 
@@ -119,14 +123,16 @@ Pure functions shared by the UI, the worker and the copilot context builder, wit
 | `fx.ts` | Builds a rate table for the chosen base currency (direct, inverse or bridged). A missing rate throws instead of silently using 1:1. |
 | `networth.ts` | Assets − liabilities with native per-currency subtotals, plus a 90-day history rolled back from transactions. Investments are held flat, so the UI labels it "est." |
 | `cashflow.ts` | Trailing-30-day in/out/net vs the prior 30 days, excluding transfers. |
+| `transfers.ts` | Pairs both legs of card payments and own-account transfers (equal and opposite amounts within 4 days, across accounts) and labels them `Transfer`. Runs on the full ledger before any dashboard filter. |
+| `scope.ts` | Dashboards: which accounts, transactions, holdings and budgets belong to the open one. |
 | `pacing.ts` | Month-to-date spend ÷ limit ÷ elapsed share of the month = velocity (1.00× is on pace). |
 | `recurring.ts` | Finds weekly, biweekly, monthly, quarterly and yearly streams. Short cadences need more evidence, so a favourite restaurant doesn't count as a bill. |
 | `forecast.ts` | 30-day projection: liquid cash, plus recurring income and bills, minus average discretionary burn, minus card balances (assumed due in 21 days). Wallet weather is **storm** if the projection goes below 0, **overcast** if the low point covers under 14 days of burn, otherwise **clear**. |
 | `anomaly.ts` | Duplicate charges (same account, merchant and amount within 1 day), price hikes on fixed-price streams, fees, and spikes over 3.5× the merchant median. |
 
-## Copilot
+## Assistant
 
-`/api/copilot` builds a compact JSON snapshot on the server (weekly burn by category, pacing, forecast, recurring streams, anomalies and the last 45 days of transactions). It sends that snapshot to Ollama and streams the answer back as text. Figures are precomputed so the model explains them rather than doing arithmetic.
+`/api/copilot` (internal name kept) builds a compact JSON snapshot on the server (weekly burn by category, pacing, forecast, recurring streams, anomalies and the last 45 days of transactions). It sends that snapshot to Ollama and streams the answer back as text. Figures are precomputed so the model explains them rather than doing arithmetic.
 
 ## Database & security
 
@@ -138,17 +144,25 @@ Pure functions shared by the UI, the worker and the copilot context builder, wit
 - New tables: `budgets`, `user_settings` (base currency) and `fx_rates` (USD-based ECB reference rates from Frankfurter, refreshed twice a day).
 - Policies are `to authenticated` with `(select auth.uid())`. Added indexes on the hot paths and enabled Realtime on `transactions`.
 
+Later migrations (RLS policies unchanged in all of them):
+
+- `0003`: `accounts.owner_label`, the dashboard an account belongs to. Clients can update only this column plus `is_active` and `name`.
+- `0004`: dashboards. Names live in `user_settings.dashboards`; `budgets` and `dashboard_layouts` get a `dashboard` column and per-dashboard unique keys.
+- `0005`: `accounts.mask` (last 4 digits, written only by the service role), used to detect re-linking the same bank.
+
 ## Layout
 
 The dashboard is a 12-column CSS grid driven by a JSON `layout_config` of `[{ i, w, h }]`. In **Edit layout** you can drag panels to reorder, change width (3/4/6/8/12) and height (1–4 rows), and remove or add widgets. The layout is saved to `dashboard_layouts`, or to localStorage in demo mode, and is validated on load.
 
 ## Known limits & roadmap
 
-- Run a single worker: job claiming isn't safe across concurrent workers.
+- Run a single worker: job claiming isn't safe across concurrent workers. The merchant cache is in memory and rebuilt every 15 minutes.
 - Item errors (`ITEM_LOGIN_REQUIRED`) are logged, but Plaid Link update mode isn't wired up yet.
 - The first sync after linking retries with backoff (about 15 min) until Plaid finishes its initial pull. After that, new data arrives only through webhooks.
 - Net-worth history doesn't include investment price changes.
 - Encrypt Plaid access tokens at rest (Supabase Vault).
 - Plaid Link update mode for re-authenticating expired items.
+- Removing a bank deletes its stored history; re-linking re-imports what Plaid provides (up to 730 days requested).
+- Sync progress shows the Plaid import as a step, not a percentage: Plaid doesn't report a total up front.
 
 </details>
