@@ -10,7 +10,7 @@ import { ConnectBank } from "./ConnectBank";
 import { SyncProgress } from "./SyncProgress";
 import { DashboardTabs } from "./DashboardTabs";
 
-const BASES: Currency[] = ["USD", "EUR", "GBP"];
+const BASES: Currency[] = ["USD", "CAD"];
 
 function ThemeToggle() {
   const [dark, setDark] = useState<boolean | null>(null);

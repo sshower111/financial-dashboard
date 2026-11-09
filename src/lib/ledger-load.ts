@@ -34,7 +34,8 @@ export async function loadLedger(sb: SupabaseClient, days = 180): Promise<Ledger
     holdings: (hold.data ?? []).map((h) => ({ ...h, quantity: Number(h.quantity), institution_price: Number(h.institution_price), institution_value: Number(h.institution_value) })) as Holding[],
     budgets: (bud.data ?? []).map((b) => ({ ...b, monthly_limit: Number(b.monthly_limit) })) as Budget[],
     fxRows: (fx.data ?? []).map((f) => ({ ...f, rate: Number(f.rate) })) as FxRow[],
-    base: (settings.data?.base_currency as Currency) ?? "USD",
+    // the picker offers USD / CAD only; an older saved EUR / GBP falls back to USD
+    base: settings.data?.base_currency === "CAD" ? "CAD" : "USD",
     dashboards: Array.isArray(settings.data?.dashboards) ? (settings.data.dashboards as Dashboard[]) : DEFAULT_DASHBOARDS,
   };
 }
