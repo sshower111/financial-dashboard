@@ -57,7 +57,8 @@ export function detectRecurring(txns: Transaction[], today: string): RecurringSt
     if (!cadence) continue;
     const regular = gaps.filter((x) => Math.abs(x - cadence) <= Math.max(3, cadence * 0.2)).length;
     if (regular / gaps.length < 0.7) continue;
-    const amounts = list.map((t) => Math.abs(t.amount));
+    // amount stability is judged on the latest 8: a raise or old overtime shouldn't hide a paycheque
+    const amounts = list.slice(-8).map((t) => Math.abs(t.amount));
     const typical = median(amounts);
     // Short cadences need more evidence and tighter amounts, otherwise a favourite
     // restaurant looks like a weekly bill. Monthly bills may vary (utilities) and
