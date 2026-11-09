@@ -19,7 +19,7 @@ const { supabaseAdmin } = await import("../src/lib/supabase/admin.ts");
 const { plaid, ACCOUNT_TYPES, SUPPORTED_CCY } = await import("../src/lib/plaid.ts");
 const { matchExisting } = await import("../src/lib/link-dedupe.ts");
 const { guessDashboard } = await import("../src/lib/finance/scope.ts");
-const { categorizeWithLLM, categorizeWithRules, forcedLabel, impossibleCategory, plaidLabel, plausibleMerchant, reconcile } = await import("../src/lib/ai/categorize.ts");
+const { categorizeWithLLM, categorizeWithRules, forcedLabel, impossibleCategory, MORTGAGE_RE, plaidLabel, plausibleMerchant, reconcile } = await import("../src/lib/ai/categorize.ts");
 const { cacheKey } = await import("../src/lib/ai/merchant.ts");
 const { hasModel, ollamaModels, OLLAMA_CATEGORIZE_MODEL, OLLAMA_MODEL, OLLAMA_URL } = await import("../src/lib/ai/ollama.ts");
 const { detectAnomalies } = await import("../src/lib/finance/anomaly.ts");
@@ -127,6 +127,8 @@ async function syncTransactions(item: Item) {
     if (p !== "TRANSFER_IN" && p !== "TRANSFER_OUT" && p !== "LOAN_PAYMENTS") return null;
     // Plaid calls Interac e-Transfers / Zelle "transfers", but they usually go to other people (rent)
     if (P2P_RE.test(t.original_description ?? t.name ?? "")) return null;
+    // a mortgage payment is housing spending (no mortgage account is linked to pair it with)
+    if (t.personal_finance_category?.detailed?.includes("MORTGAGE") || MORTGAGE_RE.test(t.original_description ?? t.name ?? "")) return null;
     const d = t.personal_finance_category?.detailed ?? "";
     return d.includes("CREDIT_CARD") ? "Credit card payment" : p === "LOAN_PAYMENTS" ? "Loan payment" : "Between accounts";
   };

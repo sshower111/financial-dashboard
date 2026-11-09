@@ -281,3 +281,21 @@ test("Plaid category: confident + named merchant labels directly; Transfer from 
   assert.equal(plaidLabel({ ...base, plaid: "FOOD_AND_DRINK_FAST_FOOD", plaidConfidence: "VERY_HIGH" }), null, "no merchant name: model names it");
   assert.equal(plaidLabel({ ...base, plaid: "FOOD_AND_DRINK_FAST_FOOD", plaidConfidence: "LOW", merchantHint: "Burger King" }), null);
 });
+
+test("tidy names from raw bank text; mortgage payments are Housing", async () => {
+  const { tidyName, finalName, forcedLabel, plaidCategory } = await import("../ai/categorize.ts");
+  assert.equal(tidyName("RESTAURANT DEPOT"), "Restaurant Depot");
+  assert.equal(tidyName("SNRHA S8 ACH PPD ID: 6270910670"), "Snrha S8 ACH");
+  assert.equal(tidyName("ATM CASH DEPOSIT 05/07 2520 S DECATUR BLVD LAS VEGAS NV"), "ATM Cash Deposit");
+  assert.equal(tidyName("REMOTE ONLINE DEPOSIT # 1"), "Remote Online Deposit");
+  assert.equal(tidyName("ORIG CO NAME:Square Inc ORIG ID:9424300002 DESC DATE:241130 CO ENTRY DESCR:SQ241130"), "Square Inc");
+  assert.equal(tidyName("REAL TIME TRANSFER RECD FROM ABA/CONTR BNK-021000021 FROM: BNF-SQUARE REF: T31WC4"), "Square");
+  assert.equal(finalName("Burger King", "BURGER KING #28512 RICHMOND HILL, ON"), "Burger King");
+  assert.equal(finalName("BALLY MARKET", "BALLY MARKET"), "Bally Market");
+  const m = (raw: string, plaid?: string) => forcedLabel({ id: "1", raw, amount: 1212.21, currency: "USD", plaid });
+  assert.equal(m("MORTGAGE SERV CT MTG PAYMT 7912556656 WEB ID: 1")?.category, "Housing");
+  assert.equal(m("Valon Payment WEB ID: VALON")?.category, "Housing");
+  assert.equal(m("ACME LOAN PMT", "LOAN_PAYMENTS_MORTGAGE_PAYMENT")?.category, "Housing");
+  assert.equal(m("CHASE CREDIT CRD AUTOPAY"), null);
+  assert.equal(plaidCategory({ raw: "X", amount: 5, plaid: "LOAN_PAYMENTS_MORTGAGE_PAYMENT" })?.category, "Housing");
+});

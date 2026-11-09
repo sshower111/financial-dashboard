@@ -30,7 +30,31 @@ export function plausibleMerchant(merchant: string, raw: string, hint?: string |
 
 const P2P_NAME = [/^(.+?)\s*-\s*interac e-?transfer/i, /^interac e-?transfer\s*(?:to|from)?\s*[:-]?\s*(.+)$/i, /zelle (?:payment )?(?:to|from)\s+(.+?)(?:\s+\S*\d\S*)?$/i, /venmo\s*(?:\*|payment)?\s*(?:to|from)?\s*(.+)$/i];
 const DIRECT_DEPOSIT = /direct dep|payroll|\bsalary\b/i;
-const titleCase = (s: string) => /[a-z]/.test(s) ? s : s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+const ACRONYMS = new Set(["ACH", "ATM", "IRS", "SBA", "LLC", "USA", "UI", "NV", "LV", "BBQ", "HOA", "CPD", "S8"]);
+const titleCase = (s: string) => /[a-z]/.test(s) ? s : s.toLowerCase().replace(/\b[\w']+/g, (w) => ACRONYMS.has(w.toUpperCase()) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1));
+
+/** Mortgage servicers / wording: a mortgage payment is housing spending, not a transfer (no mortgage account is linked). */
+export const MORTGAGE_RE = /mortgage|mtg paymt|\bvalon\b|mr\.? cooper|loancare|\bphh\b/i;
+
+/**
+ * A readable name from raw bank text, for when the model only echoed it back: the company out of an
+ * ACH record ("ORIG CO NAME:Square Inc ORIG ID:…" → "Square Inc"), without ID codes, ATM dates and
+ * addresses or reference numbers, and in normal case ("RESTAURANT DEPOT" → "Restaurant Depot").
+ */
+export function tidyName(raw: string): string {
+  const ach = raw.match(/ORIG CO NAME:\s*(.+?)\s+(?:ORIG ID|DESC DATE|CO ENTRY)/i)?.[1];
+  const wire = raw.match(/\bFROM:\s*(?:BNF-)?(.+?)\s+REF:/i)?.[1];
+  const s = (ach ?? wire ?? raw)
+    .replace(/\b(?:PPD|WEB|CCD)?\s*ID:\s*\S+/gi, "")      // "PPD ID: 4760039224"
+    .replace(/\s+\d{1,2}\/\d{1,2}\b.*$/, "")             // "ATM CASH DEPOSIT 05/07 2520 S DECATUR…"
+    .replace(/\btransaction#:?\s*\d+|#\s*\d+/gi, "")
+    .replace(/\s+/g, " ").trim();
+  return titleCase(s || raw).slice(0, 80);
+}
+
+/** The model's merchant, unless it just echoed the bank text (or kept the ACH wrapper): then tidyName. */
+export const finalName = (merchant: string, raw: string) =>
+  !merchant.trim() || merchant.trim().toLowerCase() === raw.trim().toLowerCase() || /ORIG CO NAME:/i.test(merchant) ? tidyName(raw) : merchant;
 
 /**
  * Labels decided by bank wording alone, before any model or cache:
@@ -50,13 +74,15 @@ export function forcedLabel(i: CategorizeInput): CategorizeResult | null {
     const who = i.raw.replace(/\s*-?\s*(direct dep\w*|payroll|salary).*$/i, "").trim() || i.raw;
     return { id: i.id, merchant: i.merchantHint || titleCase(who).slice(0, 80), source: "rules", confidence: 0.9, tags: [], category: "Income", subcategory: "Direct deposit" };
   }
+  if (out && (MORTGAGE_RE.test(i.raw) || /MORTGAGE/i.test(i.plaid ?? "")))
+    return { id: i.id, merchant: i.merchantHint || tidyName(i.raw), source: "rules", confidence: 0.9, tags: ["fixed"], category: "Housing", subcategory: "Mortgage" };
   return null;
 }
 
 // Plaid category (detailed code, matched by prefix, most specific first) → ours. GENERAL_SERVICES and
 // GOVERNMENT_AND_NON_PROFIT are too broad to map: the model decides those.
 const PLAID_MAP: [string, Category][] = [
-  ["INCOME", "Income"], ["TRANSFER_IN", "Transfer"], ["TRANSFER_OUT", "Transfer"], ["LOAN_PAYMENTS", "Transfer"],
+  ["INCOME", "Income"], ["TRANSFER_IN", "Transfer"], ["TRANSFER_OUT", "Transfer"], ["LOAN_PAYMENTS_MORTGAGE_PAYMENT", "Housing"], ["LOAN_PAYMENTS", "Transfer"],
   ["BANK_FEES", "Fees"], ["ENTERTAINMENT", "Entertainment"], ["FOOD_AND_DRINK_GROCERIES", "Groceries"], ["FOOD_AND_DRINK", "Dining"],
   ["GENERAL_MERCHANDISE", "Shopping"], ["HOME_IMPROVEMENT", "Shopping"], ["MEDICAL", "Health"], ["PERSONAL_CARE", "Health"],
   ["TRANSPORTATION", "Transport"], ["TRAVEL", "Travel"], ["RENT_AND_UTILITIES_RENT", "Housing"], ["RENT_AND_UTILITIES", "Utilities"],
@@ -166,7 +192,7 @@ export async function categorizeWithLLM(items: CategorizeInput[], opts: LLMOptio
     const category = (CATEGORIES as readonly string[]).includes(r.category as string) ? (r.category as Category) : "Other";
     return [reconcile({
       id: i.id, category, source: "llm",
-      merchant: (r.merchant || i.merchantHint || i.raw).slice(0, 80),
+      merchant: finalName(r.merchant || i.merchantHint || "", i.raw).slice(0, 80),
       subcategory: (r.subcategory || "").slice(0, 40),
       confidence: Math.max(0, Math.min(1, Number(r.confidence) || 0.5)),
       tags: (r.tags ?? []).filter((t) => typeof t === "string").slice(0, 3),
@@ -214,7 +240,7 @@ export function categorizeWithRules(i: CategorizeInput): CategorizeResult {
     .toLowerCase()
     .replace(/\b\w/g, (c) => c.toUpperCase());
   return {
-    id: i.id, merchant: merchant || i.raw, source: "rules",
+    id: i.id, merchant: finalName(merchant || "", i.raw), source: "rules",
     category: hit?.[1] ?? (i.amount < 0 ? "Income" : "Other"), subcategory: hit?.[2] ?? "",
     confidence: hit ? 0.6 : 0.2, tags: hit?.[3] ?? [],
   };
