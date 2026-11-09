@@ -19,11 +19,11 @@ const { supabaseAdmin } = await import("../src/lib/supabase/admin.ts");
 const { plaid, ACCOUNT_TYPES, SUPPORTED_CCY } = await import("../src/lib/plaid.ts");
 const { matchExisting } = await import("../src/lib/link-dedupe.ts");
 const { guessDashboard } = await import("../src/lib/finance/scope.ts");
-const { categorizeWithLLM, categorizeWithRules, impossibleCategory, plausibleMerchant } = await import("../src/lib/ai/categorize.ts");
+const { categorizeWithLLM, categorizeWithRules, forcedLabel, impossibleCategory, plausibleMerchant } = await import("../src/lib/ai/categorize.ts");
 const { cacheKey } = await import("../src/lib/ai/merchant.ts");
 const { hasModel, ollamaModels, OLLAMA_CATEGORIZE_MODEL, OLLAMA_MODEL, OLLAMA_URL } = await import("../src/lib/ai/ollama.ts");
 const { detectAnomalies } = await import("../src/lib/finance/anomaly.ts");
-const { markTransfers } = await import("../src/lib/finance/transfers.ts");
+const { markTransfers, P2P_RE } = await import("../src/lib/finance/transfers.ts");
 import type { Account, Transaction } from "../src/lib/types.ts";
 import type { CategorizeInput, CategorizeResult } from "../src/lib/ai/categorize.ts";
 import type { RemovedTransaction, Transaction as PlaidTxn } from "plaid";
@@ -123,6 +123,8 @@ async function syncTransactions(item: Item) {
   const plaidTransfer = (t: PlaidTxn) => {
     const p = t.personal_finance_category?.primary;
     if (p !== "TRANSFER_IN" && p !== "TRANSFER_OUT" && p !== "LOAN_PAYMENTS") return null;
+    // Plaid calls Interac e-Transfers / Zelle "transfers", but they usually go to other people (rent)
+    if (P2P_RE.test(t.original_description ?? t.name ?? "")) return null;
     const d = t.personal_finance_category?.detailed ?? "";
     return d.includes("CREDIT_CARD") ? "Credit card payment" : p === "LOAN_PAYMENTS" ? "Loan payment" : "Between accounts";
   };
@@ -364,10 +366,14 @@ async function categorize(): Promise<boolean> {
   const queued = (data ?? []) as Queued[];
   if (!queued.length) return false;
 
-  // 1. cache
+  // 1. bank wording that decides the label on its own (e-Transfers, direct deposits), then the cache
   const t0 = Date.now();
   const hits: { row: Queued; labels: Labels }[] = [], misses: Queued[] = [];
-  for (const r of queued) { const c = cache.get(keyOf(r)); if (c) hits.push({ row: r, labels: c }); else misses.push(r); }
+  for (const r of queued) {
+    const f = forcedLabel(toInput(r));
+    if (f) { hits.push({ row: r, labels: toLabels(f) }); continue; }
+    const c = cache.get(keyOf(r)); if (c) hits.push({ row: r, labels: c }); else misses.push(r);
+  }
   if (hits.length) {
     await writeLabels(hits);
     log(`cache: ${hits.length} of ${queued.length} queued applied instantly (${Date.now() - t0}ms), ${misses.length} need the LLM`);

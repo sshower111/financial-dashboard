@@ -1,6 +1,6 @@
 import { CATEGORIES, type Category } from "../types.ts";
 import { generate } from "./ollama.ts";
-import { TRANSFER_RE } from "../finance/transfers.ts";
+import { P2P_RE, TRANSFER_RE } from "../finance/transfers.ts";
 
 export interface CategorizeInput { id: string; raw: string; amount: number; currency: string; merchantHint?: string | null }
 export interface CategorizeResult { id: string; merchant: string; category: Category; subcategory: string; confidence: number; tags: string[]; source: "llm" | "rules" }
@@ -22,6 +22,31 @@ export function plausibleMerchant(merchant: string, raw: string, hint?: string |
   const expanded = `${raw} ${hint ?? ""}`.replace(/\bamzn\b/gi, "amazon").replace(/\b(wm|wal-mart)\b/gi, "walmart").replace(/\bsq\b/gi, "");
   const src = toks(expanded), joined = src.join("");
   return m.some((w) => joined.includes(w) || src.some((s) => s.slice(0, 3) === w.slice(0, 3)));
+}
+
+const P2P_NAME = [/^(.+?)\s*-\s*interac e-?transfer/i, /^interac e-?transfer\s*(?:to|from)?\s*[:-]?\s*(.+)$/i, /zelle (?:payment )?(?:to|from)\s+(.+?)(?:\s+\S*\d\S*)?$/i, /venmo\s*(?:\*|payment)?\s*(?:to|from)?\s*(.+)$/i];
+const DIRECT_DEPOSIT = /direct dep|payroll|\bsalary\b/i;
+const titleCase = (s: string) => /[a-z]/.test(s) ? s : s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+
+/**
+ * Labels decided by bank wording alone, before any model or cache:
+ *  - person-to-person payments (Interac e-Transfer, Zelle, Venmo): a payment to someone, or money
+ *    received from someone. Never "Transfer" here: rent paid by e-Transfer is real spending. If both
+ *    legs are the user's own accounts, markTransfers still pairs them as a transfer.
+ *  - money IN described as a direct deposit / payroll: Income (a Costco paycheque is not Groceries).
+ */
+export function forcedLabel(i: CategorizeInput): CategorizeResult | null {
+  const out = i.amount > 0;
+  if (P2P_RE.test(i.raw) && !TRANSFER_RE.test(i.raw)) {
+    const who = P2P_NAME.map((re) => i.raw.match(re)?.[1]?.trim()).find((s) => s && s.length >= 2);
+    return { id: i.id, merchant: titleCase(who ?? i.raw).replace(/[®™]/g, "").slice(0, 80), source: "rules", confidence: 0.9, tags: [],
+      category: out ? "Other" : "Income", subcategory: out ? "Payment to person" : "Payment received" };
+  }
+  if (!out && DIRECT_DEPOSIT.test(i.raw) && !TRANSFER_RE.test(i.raw)) {
+    const who = i.raw.replace(/\s*-?\s*(direct dep\w*|payroll|salary).*$/i, "").trim() || i.raw;
+    return { id: i.id, merchant: i.merchantHint || titleCase(who).slice(0, 80), source: "rules", confidence: 0.9, tags: [], category: "Income", subcategory: "Direct deposit" };
+  }
+  return null;
 }
 
 /** Money going out can't be income (refunds coming IN can be anything). */
@@ -73,6 +98,12 @@ export interface LLMOptions {
  */
 export async function categorizeWithLLM(items: CategorizeInput[], opts: LLMOptions | number = {}): Promise<CategorizeResult[]> {
   const { timeoutMs = 300_000, model, missing = "rules" } = typeof opts === "number" ? { timeoutMs: opts } : opts;
+  const forced = items.flatMap((i) => forcedLabel(i) ?? []);
+  if (forced.length) {
+    const done = new Set(forced.map((f) => f.id));
+    const rest = items.filter((i) => !done.has(i.id));
+    return [...forced, ...(rest.length ? await categorizeWithLLM(rest, { timeoutMs, model, missing }) : [])];
+  }
   const prompt = JSON.stringify(items.map((i, n) => ({ id: String(n + 1), raw: i.raw, amount: i.amount, dir: i.amount > 0 ? "out" : "in", currency: i.currency, hint: i.merchantHint ?? undefined })));
   const text = await generate({ system: SYSTEM, prompt, format: SCHEMA, temperature: 0, timeoutMs, model });
   const parsed = JSON.parse(text) as { results?: Partial<CategorizeResult>[] };

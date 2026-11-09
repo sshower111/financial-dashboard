@@ -10,7 +10,12 @@ export const isTransfer = (t: Transaction) => t.category === "Transfer";
 
 /** Bank wording for card payments / own-account moves (card side and bank side). Interac e-Transfers
  *  are deliberately absent: those usually go to other people and are real spending. */
-export const TRANSFER_RE = /payment\s*[-–]?\s*thank|thank you for (your )?payment|payment received|autopay|auto pay|automatic payment|ach pmt|bill pymt|epayment|online (banking )?payment|cr(edi)?t ?(card|crd) (pmt|pymt|payment)|crd (epay|autopay)|online transfer|transfer (to|from)|xfer|\btfr\b|loan pmt|pre-?authorized payment.*(visa|mastercard|amex)/i;
+export const TRANSFER_RE = /payment\s*[-–]?\s*thank|thank you for (your )?payment|payment received|autopay|auto pay|automatic payment|ach pmt|bill pymt|epayment|online (banking )?payment|cr(edi)?t ?(card|crd) (pmt|pymt|payment)|crd (epay|autopay)|online transfer|(?<!e-?)transfer (to|from)|xfer|\btfr\b|loan pmt|pre-?authorized payment.*(visa|mastercard|amex)/i;
+
+/** Person-to-person payments (Interac e-Transfer, Zelle, Venmo). Usually to / from other people (rent,
+ *  splitting a bill), so never pre-labelled as own-account transfers; they only become "Transfer" when
+ *  markTransfers pairs both legs across the user's own accounts. */
+export const P2P_RE = /e-?transfer|\bzelle\b|\bvenmo\b/i;
 
 const LIABILITY = new Set(["credit", "loan"]);
 const WINDOW_DAYS = 4;
@@ -27,7 +32,7 @@ const WINDOW_DAYS = 4;
  */
 export function markTransfers<T extends { accounts: Account[]; transactions: Transaction[] }>(d: T): T {
   const type = new Map(d.accounts.map((a) => [a.id, a.type]));
-  const looksTransfer = (t: Transaction) => isTransfer(t) || TRANSFER_RE.test(t.raw_merchant_string);
+  const looksTransfer = (t: Transaction) => isTransfer(t) || TRANSFER_RE.test(t.raw_merchant_string) || P2P_RE.test(t.raw_merchant_string);
   const ids = new Map<string, string>(); // id → subcategory
 
   // index outflows by |amount| (cents, currency) for pairing

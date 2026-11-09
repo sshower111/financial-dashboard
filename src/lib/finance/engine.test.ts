@@ -252,3 +252,18 @@ test("recurring groups by the bank's text, so a paycheque whose AI name varies i
   assert.equal(s[0].cadenceDays, 14);
   assert.equal(s[0].direction, "in");
 });
+
+test("forced labels: e-Transfers are payments to people, direct deposits are income", async () => {
+  const { forcedLabel } = await import("../ai/categorize.ts");
+  const { TRANSFER_RE } = await import("./transfers.ts");
+  const f = (raw: string, amount: number) => forcedLabel({ id: "1", raw, amount, currency: "CAD" });
+  assert.deepEqual([f("Kerry Tan - INTERAC e-Transfer®", 850)?.category, f("Kerry Tan - INTERAC e-Transfer®", 850)?.merchant], ["Other", "Kerry Tan"]);
+  assert.equal(f("INTERAC E-TRANSFER TO JOHN SMITH", 40)?.merchant, "John Smith");
+  assert.equal(f("Zelle payment from VINCENTE C POON WFCT0YWQLDZS", -20)?.category, "Income");
+  assert.equal(f("Zelle payment from VINCENTE C POON WFCT0YWQLDZS", -20)?.merchant, "Vincente C Poon");
+  assert.deepEqual([f("COSTCO WHOLESAL - Direct deposit", -1028.17)?.category, f("COSTCO WHOLESAL - Direct deposit", -1028.17)?.merchant], ["Income", "Costco Wholesal"]);
+  assert.equal(f("COSTCO WHOLESALE W592 RICHMOND HILL, ON", 3.15), null);
+  assert.equal(f("Online Transfer to CHK ...5309", 100), null);
+  assert.equal(TRANSFER_RE.test("INTERAC E-TRANSFER TO JOHN SMITH"), false);
+  assert.equal(TRANSFER_RE.test("Online Transfer from SAV ...9318"), true);
+});
