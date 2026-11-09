@@ -8,6 +8,8 @@
     "build": "next build",
     "start": "next start",
     "worker": "tsx worker/index.ts",
+    "live": "node scripts/live.mjs",
+    "live:prod": "node scripts/live.mjs --prod",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test src/lib/finance/engine.test.ts"
   },

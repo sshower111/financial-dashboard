@@ -7,6 +7,9 @@ Real-time personal finance dashboard: Plaid → Supabase → background worker (
 ```bash
 npm run dev        # Next.js on :3000 (demo mode if .env.local has no Supabase vars)
 npm run worker     # background worker: Plaid sync, LLM categorization, anomaly scan, FX refresh
+npm run live       # owner's one-window setup: next dev + worker + ngrok (scripts/live.mjs); Ctrl+C stops all
+npm run live:prod  # same with next build + next start. Port LIVE_PORT (default 3001); ngrok domain from
+                   # NGROK_DOMAIN or the PLAID_REDIRECT_URI host in .env.local (NGROK_DOMAIN=off skips ngrok)
 npm test           # finance engine unit tests (node:test via tsx)
 npm run typecheck
 npm run build

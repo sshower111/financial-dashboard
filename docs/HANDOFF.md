@@ -12,32 +12,15 @@ A personal finance dashboard. Plaid pulls bank, card and brokerage data into Sup
 
 The owner runs a production build behind an HTTPS tunnel (ngrok static domain). Plaid OAuth and webhooks need HTTPS, and sign-in cookies are tied to that domain, so always open the app through the tunnel URL.
 
-Three processes run at the same time, each in its own terminal:
+Everything runs from one terminal window (`scripts/live.mjs` starts the web app, the worker and ngrok together, prefixes each one's log lines, and Ctrl+C stops all three):
 
 ```
-npm start
-```
-```
-npm run worker
-```
-```
-ngrok http --url=<your-static-domain> 3000
+npm run live:prod
 ```
 
-After pulling new code, stop `npm start` and the worker, then:
+Use `npm run live` instead while reviewing changes: it runs the dev server, which reloads on every saved file (no build). The app is on port 3001 (`LIVE_PORT`). The ngrok domain is read from `NGROK_DOMAIN` in `.env.local`, else from the host of `PLAID_REDIRECT_URI`, so it is never committed. Stop any older `npm start` / worker / ngrok windows first, or the port and the domain are already taken.
 
-```
-npm install
-```
-```
-npm run build
-```
-```
-npm start
-```
-```
-npm run worker
-```
+After pulling new code, stop it (Ctrl+C), run `npm install`, then `npm run live:prod` again (it rebuilds).
 
 Migration 0006 is applied (2026-11-09). With it the worker claims jobs with `FOR UPDATE SKIP LOCKED`, so several can run; without it the worker logs a warning and uses the old unlocked query.
 
