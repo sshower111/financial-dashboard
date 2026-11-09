@@ -6,6 +6,25 @@ import { useDerived, useScopedData } from "@/store/derived";
 import { Money } from "../Money";
 import { clock, shortDate } from "@/lib/format";
 import { Empty } from "../Panel";
+import { addDays, todayKey } from "@/lib/finance/dates";
+
+const MONTH = new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
+const endOfMonth = (ym: string) => { const [y, m] = ym.split("-").map(Number); return addDays(m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, "0")}-01`, -1); };
+const monthsBack = (ym: string, n: number) => { const [y, m] = ym.split("-").map(Number); const k = y * 12 + m - 1 - n; return `${Math.floor(k / 12)}-${String((k % 12) + 1).padStart(2, "0")}`; };
+
+/** Preset ranges for the range menu; "m:YYYY-MM" is a single month, "custom" shows From / To. */
+function presetRange(key: string, today: string): [string, string] {
+  const ym = today.slice(0, 7);
+  if (key.startsWith("m:")) return [`${key.slice(2)}-01`, endOfMonth(key.slice(2))];
+  switch (key) {
+    case "this": return [`${ym}-01`, today];
+    case "last": { const p = monthsBack(ym, 1); return [`${p}-01`, endOfMonth(p)]; }
+    case "3m": return [addDays(today, -90), today];
+    case "ytd": return [`${today.slice(0, 4)}-01-01`, today];
+    case "12m": return [addDays(today, -365), today];
+    default: return ["", ""];
+  }
+}
 
 export function Feed() {
   const data = useScopedData();
@@ -20,8 +39,14 @@ export function Feed() {
   const flagged = useMemo(() => new Set(d?.anomalies.map((a) => a.transactionId)), [d]);
   const acct = useMemo(() => new Map(data?.accounts.map((a) => [a.id, a.name])), [data]);
   const [order, setOrder] = useState<"new" | "old">("new");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [range, setRange] = useState("all");
+  const [cFrom, setCFrom] = useState("");
+  const [cTo, setCTo] = useState("");
+  const [limit, setLimit] = useState(200);
+  const today = todayKey();
+  const [from, to] = range === "custom" ? [cFrom, cTo] : presetRange(range, today);
+  // one menu entry per month that has transactions, newest first
+  const months = useMemo(() => [...new Set((data?.transactions ?? []).map((t) => t.date.slice(0, 7)))].sort().reverse(), [data]);
   const filtered = useMemo(() => {
     const list = (data?.transactions ?? []).filter((t) => (!from || t.date >= from) && (!to || t.date <= to));
     // the store keeps newest-first (date, then arrival); oldest-first is the exact reverse
@@ -29,8 +54,7 @@ export function Feed() {
   }, [data, from, to, order]);
   if (!data) return null;
   if (!data.transactions.length) return <Empty>No transactions yet. Link an institution to start the feed.</Empty>;
-  const LIMIT = 200;
-  const rows = filtered.slice(0, LIMIT);
+  const rows = filtered.slice(0, limit);
   const ctl = "h-6 border border-line bg-bg px-1 text-[11px] text-ink-2 focus:border-ink focus:outline-none";
 
   return (
@@ -52,10 +76,26 @@ export function Feed() {
           <option value="new">Newest first</option>
           <option value="old">Oldest first</option>
         </select>
-        <label className="flex items-center gap-1">From <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} className={`num ${ctl} ${from ? "!border-accent" : ""}`} /></label>
-        <label className="flex items-center gap-1">To <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} className={`num ${ctl} ${to ? "!border-accent" : ""}`} /></label>
-        {(from || to) && <button onClick={() => { setFrom(""); setTo(""); }} className="hover:text-ink">Clear</button>}
-        <span className="num ml-auto">{filtered.length > LIMIT ? `${LIMIT} of ${filtered.length}` : filtered.length} txns</span>
+        <select value={range} onChange={(e) => { setRange(e.target.value); setLimit(200); }} className={`${ctl} ${range !== "all" ? "!border-accent" : ""}`} aria-label="Date range">
+          <option value="all">All dates</option>
+          <option value="this">This month</option>
+          <option value="last">Last month</option>
+          <option value="3m">Last 3 months</option>
+          <option value="ytd">Year to date</option>
+          <option value="12m">Last 12 months</option>
+          <option value="custom">Custom range…</option>
+          <optgroup label="Month">
+            {months.map((m) => <option key={m} value={`m:${m}`}>{MONTH.format(new Date(`${m}-01T00:00:00Z`))}</option>)}
+          </optgroup>
+        </select>
+        {range === "custom" && (
+          <>
+            <label className="flex items-center gap-1">From <input type="date" value={cFrom} max={cTo || today} onChange={(e) => setCFrom(e.target.value)} className={`num ${ctl}`} /></label>
+            <label className="flex items-center gap-1">To <input type="date" value={cTo} min={cFrom || undefined} max={today} onChange={(e) => setCTo(e.target.value)} className={`num ${ctl}`} /></label>
+          </>
+        )}
+        {range !== "all" && <button onClick={() => { setRange("all"); setCFrom(""); setCTo(""); }} className="hover:text-ink">Clear</button>}
+        <span className="num ml-auto">{filtered.length > limit ? `${limit} of ${filtered.length}` : filtered.length} txns</span>
       </div>
       {!rows.length && <Empty>No transactions in this date range.</Empty>}
       <div className="scroll-thin min-h-0 flex-1 overflow-auto">
@@ -94,6 +134,11 @@ export function Feed() {
             </AnimatePresence>
           </tbody>
         </table>
+        {filtered.length > limit && (
+          <button onClick={() => setLimit((n) => n + 500)} className="w-full border-t border-line py-2 text-[12px] text-muted hover:text-ink">
+            Show more ({filtered.length - limit} left)
+          </button>
+        )}
       </div>
     </div>
   );
