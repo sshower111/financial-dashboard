@@ -11,7 +11,7 @@ import { DEMO_MODE } from "@/lib/env";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { demoLedger, loadLedger } from "@/lib/ledger-load";
 import { LIVE_SAMPLES, demoBudgets } from "@/lib/demo";
-import { loadDemoBudgets, loadDemoDashboards, loadDemoOwners, loadLayout, saveLayout } from "@/lib/persist";
+import { loadDemoBudgets, loadDemoDashboards, loadDemoNicknames, loadDemoOwners, loadLayout, saveLayout } from "@/lib/persist";
 import { DEFAULT_LAYOUT, sanitizeLayout } from "@/lib/layout";
 import { detectAnomalies } from "@/lib/finance/anomaly";
 import { todayKey } from "@/lib/finance/dates";
@@ -33,8 +33,8 @@ export function LiveSync() {
       try {
         if (DEMO_MODE) {
           const d = demoLedger();
-          const owners = loadDemoOwners() ?? {};
-          s.setData({ ...d, budgets: loadDemoBudgets() ?? demoBudgets, dashboards: loadDemoDashboards() ?? d.dashboards, accounts: d.accounts.map((a) => (a.id in owners ? { ...a, owner_label: owners[a.id] } : a)) });
+          const owners = loadDemoOwners() ?? {}, names = loadDemoNicknames() ?? {};
+          s.setData({ ...d, budgets: loadDemoBudgets() ?? demoBudgets, dashboards: loadDemoDashboards() ?? d.dashboards, accounts: d.accounts.map((a) => ({ ...a, ...(a.id in owners ? { owner_label: owners[a.id] } : {}), ...(a.id in names ? { nickname: names[a.id] } : {}) })) });
         } else {
           s.setData(await loadLedger(supabaseBrowser()));
         }

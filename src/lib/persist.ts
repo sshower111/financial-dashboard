@@ -5,7 +5,7 @@ import type { Budget, Currency } from "./types";
 import type { LayoutItem } from "./layout";
 import type { Dashboard } from "./finance/scope";
 
-const LS = { layout: "ledger.layout.v1", budgets: "ledger.budgets.v1", owners: "ledger.owners.v2", dashboards: "ledger.dashboards.v2" };
+const LS = { nicknames: "ledger.nicknames.v1", layout: "ledger.layout.v1", budgets: "ledger.budgets.v1", owners: "ledger.owners.v2", dashboards: "ledger.dashboards.v2" };
 const lsGet = <T,>(k: string): T | null => { try { const v = localStorage.getItem(k); return v ? (JSON.parse(v) as T) : null; } catch { return null; } };
 const lsSet = (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } };
 
@@ -60,6 +60,15 @@ export async function saveDashboards(list: Dashboard[]) {
 
 /** Demo mode keeps account → dashboard moves in localStorage: { accountId: dashboard }. */
 export function loadDemoOwners(): Record<string, string | null> | null { return lsGet(LS.owners); }
+
+export function loadDemoNicknames(): Record<string, string | null> | null { return lsGet(LS.nicknames); }
+
+/** Rename an account (null = back to the bank's name). Live: column-granted update on accounts.nickname (0006). */
+export async function renameAccount(accountId: string, nickname: string | null) {
+  if (DEMO_MODE) { lsSet(LS.nicknames, { ...(loadDemoNicknames() ?? {}), [accountId]: nickname }); return; }
+  const { error } = await supabaseBrowser().from("accounts").update({ nickname }).eq("id", accountId);
+  if (error) throw error;
+}
 
 /** Move an account to another dashboard. Live: column-granted update on accounts.owner_label (0003). */
 export async function moveAccount(accountId: string, dashboard: string) {

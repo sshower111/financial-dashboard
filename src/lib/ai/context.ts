@@ -6,6 +6,7 @@ import { forecastCash } from "../finance/forecast.ts";
 import { detectAnomalies } from "../finance/anomaly.ts";
 import { budgetPacing } from "../finance/pacing.ts";
 import { convert } from "../finance/fx.ts";
+import { accountLabel } from "../format.ts";
 
 export interface Ledger { accounts: Account[]; transactions: Transaction[]; holdings: Holding[]; budgets: Budget[]; fx: FxTable; base: string }
 
@@ -43,7 +44,7 @@ export function buildLedgerContext(l: Ledger, now = new Date()): string {
   return JSON.stringify({
     today, weekday: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dow], baseCurrency: l.base,
     netWorth: { total: r2(nw.total), assets: r2(nw.assets), liabilities: r2(nw.liabilities), byType: Object.fromEntries(Object.entries(nw.byType).map(([k, v]) => [k, r2(v)])), nativeByCurrency: nw.byCurrency },
-    accounts: l.accounts.map((a) => ({ name: a.name, type: a.type, currency: a.currency, balance: a.current_balance })),
+    accounts: l.accounts.map((a) => ({ name: accountLabel(a), type: a.type, currency: a.currency, balance: a.current_balance })),
     holdings: l.holdings.map((h) => ({ ticker: h.ticker, qty: h.quantity, value: h.institution_value, ccy: h.currency })),
     weeklyBurn: weeks,
     budgets: budgetPacing(l.budgets, l.transactions, l.fx, now).rows.map((r) => ({ category: r.category, spent: r2(r.spent), limit: r2(r.limit), velocity: r2(r.velocity), status: r.status })),

@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useLedger } from "@/store/ledger";
 import { useDerived, useScopedData } from "@/store/derived";
 import { Money } from "../Money";
-import { clock, shortDate } from "@/lib/format";
+import { accountLabel, clock, shortDate } from "@/lib/format";
 import { Empty } from "../Panel";
 import { addDays, todayKey } from "@/lib/finance/dates";
 
@@ -37,7 +37,7 @@ export function Feed() {
   }, [allEvents, data]);
   const d = useDerived();
   const flagged = useMemo(() => new Set(d?.anomalies.map((a) => a.transactionId)), [d]);
-  const acct = useMemo(() => new Map(data?.accounts.map((a) => [a.id, a.name])), [data]);
+  const acct = useMemo(() => new Map(data?.accounts.map((a) => [a.id, accountLabel(a)])), [data]);
   const [order, setOrder] = useState<"new" | "old">("new");
   const [range, setRange] = useState("all");
   const [cFrom, setCFrom] = useState("");

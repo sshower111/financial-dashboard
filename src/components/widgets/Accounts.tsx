@@ -5,7 +5,8 @@ import { Money } from "../Money";
 import type { Account, AccountType, Institution } from "@/lib/types";
 import { matchExisting } from "@/lib/link-dedupe";
 import { dashboardList, dashboardOf, type Dashboard } from "@/lib/finance/scope";
-import { moveAccount } from "@/lib/persist";
+import { moveAccount, renameAccount } from "@/lib/persist";
+import { accountLabel } from "@/lib/format";
 import { useState } from "react";
 import { loadLedger } from "@/lib/ledger-load";
 import { supabaseBrowser } from "@/lib/supabase/client";
@@ -20,16 +21,37 @@ function MoveTo({ a, list }: { a: Account; list: Dashboard[] }) {
     try { await moveAccount(a.id, to); }
     catch (e) {
       s.setOwnerLabel(a.id, prev);
-      s.pushEvent({ kind: "flagged", text: `Couldn't move ${a.name}: ${e instanceof Error ? e.message : String(e)}` });
+      s.pushEvent({ kind: "flagged", text: `Couldn't move ${accountLabel(a)}: ${e instanceof Error ? e.message : String(e)}` });
     }
   };
   return (
     <label className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-muted">Move to
-      <select value={cur} onChange={(e) => move(e.target.value)} aria-label={`Dashboard for ${a.name}`}
+      <select value={cur} onChange={(e) => move(e.target.value)} aria-label={`Dashboard for ${accountLabel(a)}`}
         className="h-5 w-full min-w-0 max-w-[10rem] border border-line bg-bg px-1 text-[11px] text-ink-2 focus:border-ink focus:outline-none">
         {list.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
       </select>
     </label>
+  );
+}
+
+/** Rename an account (shown in layout-edit mode). Saves on Enter / leaving the field; empty = bank's name. */
+function Rename({ a }: { a: Account }) {
+  const [v, setV] = useState(a.nickname ?? "");
+  const save = async () => {
+    const next = v.trim().slice(0, 60) || null, prev = a.nickname ?? null;
+    if (next === prev) return;
+    const s = useLedger.getState();
+    s.setNickname(a.id, next);
+    try { await renameAccount(a.id, next); }
+    catch (e) {
+      s.setNickname(a.id, prev); setV(prev ?? "");
+      s.pushEvent({ kind: "flagged", text: `Couldn't rename ${accountLabel(a)}: ${e instanceof Error ? e.message : String(e)}` });
+    }
+  };
+  return (
+    <input value={v} onChange={(e) => setV(e.target.value)} onBlur={save} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { setV(a.nickname ?? ""); } }}
+      placeholder={accountLabel({ ...a, nickname: null })} maxLength={60} aria-label={`Name for ${accountLabel(a)}`}
+      className="h-6 w-full min-w-0 border border-line bg-bg px-1 text-[12px] text-ink focus:border-ink focus:outline-none" />
   );
 }
 
@@ -139,7 +161,7 @@ export function Accounts() {
               const util = liab && a.limit_amount ? (a.current_balance ?? 0) / a.limit_amount : null;
               return (
                 <tr key={a.id}>
-                  <td className="max-w-0"><div className="wrap">{a.name}</div>{util != null && <div className={`num text-[11px] ${util > 0.3 ? "text-accent" : "text-muted"}`}>{(util * 100).toFixed(0)}% utilized</div>}
+                  <td className="max-w-0">{editing ? <Rename a={a} /> : <div className="wrap" title={a.nickname ? accountLabel({ ...a, nickname: null }) : undefined}>{accountLabel(a)}</div>}{util != null && <div className={`num text-[11px] ${util > 0.3 ? "text-accent" : "text-muted"}`}>{(util * 100).toFixed(0)}% utilized</div>}
                     {editing && dashboards.length > 1 && <MoveTo a={a} list={dashboards} />}</td>
                   <td className="hidden wrap text-muted @xl:table-cell">{inst.get(a.institution_id)?.name} <span className="num text-[11px]">{inst.get(a.institution_id)?.country}</span></td>
                   <td className="r hidden @md:table-cell"><Money value={bal} ccy={a.currency} /></td>

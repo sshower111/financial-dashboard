@@ -13,6 +13,9 @@ export function money(n: number, opts: { sign?: boolean; dp?: number; compact?: 
   const sign = n < 0 ? "−" : opts.sign && n > 0 ? "+" : "";
   return `${sign}${s}`;
 }
+/** What the UI calls an account: the user's nickname, else the bank's name + last 4 digits. */
+export const accountLabel = (a: { name: string; mask?: string | null; nickname?: string | null }) =>
+  a.nickname?.trim() || (a.mask ? `${a.name} ··${a.mask}` : a.name);
 export const pct = (x: number, dp = 0) => `${(x * 100).toFixed(dp)}%`;
 export const shortDate = (k: string) => new Date(`${k}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 export const clock = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });

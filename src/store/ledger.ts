@@ -35,6 +35,7 @@ interface State {
   /** replace the dashboard list (names / order); caller persists it */
   setDashboards: (list: Dashboard[]) => void;
   setOwnerLabel: (accountId: string, label: string | null) => void;
+  setNickname: (accountId: string, nickname: string | null) => void;
   pushEvent: (e: Omit<FeedEvent, "id" | "at"> & { at?: string }) => void;
 
   setLayout: (l: LayoutItem[]) => void;
@@ -92,6 +93,7 @@ export const useLedger = create<State>((set) => ({
   setDashboard: (dashboard) => { try { localStorage.setItem(DASHBOARD_KEY, dashboard); } catch { /* private mode */ } set({ dashboard }); },
   setDashboards: (dashboards) => set((s) => (s.data ? { data: { ...s.data, dashboards } } : s)),
   setOwnerLabel: (accountId, label) => set((s) => (s.data ? { data: { ...s.data, accounts: s.data.accounts.map((a) => (a.id === accountId ? { ...a, owner_label: label } : a)) } } : s)),
+  setNickname: (accountId, nickname) => set((s) => (s.data ? { data: { ...s.data, accounts: s.data.accounts.map((a) => (a.id === accountId ? { ...a, nickname } : a)) } } : s)),
   setBudgets: (budgets) => set((s) => (s.data ? { data: { ...s.data, budgets } } : s)),
   pushEvent: (e) => set((s) => ({ events: [{ ...e, id: `ev-${++evSeq}`, at: e.at ?? new Date().toISOString() }, ...s.events].slice(0, 60) })),
 
