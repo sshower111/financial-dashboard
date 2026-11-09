@@ -179,10 +179,35 @@ async function syncHoldings(item: Item) {
 
 const dirtyUsers = new Set<string>();
 
-async function processJobs() {
+// Job claiming. With migration 0006 the claim_webhook_jobs RPC leases rows with FOR UPDATE SKIP LOCKED,
+// so several workers can run at once. Without it, fall back to a plain select (one worker only).
+const JOB_LEASE_SECONDS = 15 * 60;
+let leaseClaims: boolean | null = null; // null = not probed yet
+
+async function claimJobs() {
+  if (leaseClaims !== false) {
+    const { data, error } = await db.rpc("claim_webhook_jobs", { p_limit: JOB_BATCH, p_max_attempts: MAX_ATTEMPTS, p_lease_seconds: JOB_LEASE_SECONDS });
+    if (!error) {
+      leaseClaims = true;
+      return ((data ?? []) as { created_at: string }[]).sort((a, b) => a.created_at.localeCompare(b.created_at));
+    }
+    // function missing (PostgREST PGRST202 / Postgres 42883): 0006 not applied yet
+    if (error.code !== "PGRST202" && error.code !== "42883") throw new Error(`claim_webhook_jobs: ${error.message}`);
+    leaseClaims = false;
+    log("migration 0006 not applied: claiming jobs without locks, run only one worker");
+  }
   const { data: rows } = await db.from("webhook_logs").select("*").eq("processed", false).lt("attempts", MAX_ATTEMPTS).order("created_at").limit(50);
   // backoff: attempt n waits 20s·n² after the job was created (0s, 20s, 80s, 3m, 5m…)
-  const jobs = (rows ?? []).filter((j) => Date.now() >= new Date(j.created_at).getTime() + 20_000 * j.attempts ** 2).slice(0, JOB_BATCH);
+  return (rows ?? []).filter((j) => Date.now() >= new Date(j.created_at).getTime() + 20_000 * j.attempts ** 2).slice(0, JOB_BATCH);
+}
+
+/** Update a claimed job and release its lease (the column only exists once 0006 is applied). */
+function settleJob(id: string, patch: Record<string, unknown>) {
+  return db.from("webhook_logs").update(leaseClaims ? { ...patch, locked_until: null } : patch).eq("id", id);
+}
+
+async function processJobs() {
+  const jobs = (await claimJobs()) as any[];
   for (const job of jobs) {
     const { webhook_type: type, webhook_code: code } = job;
     const itemId = job.payload?.item_id as string | undefined;
@@ -199,7 +224,7 @@ async function processJobs() {
               // Right after Link, Plaid is usually still pulling history. Without a webhook
               // nothing would tell us when it's ready, so the first-sync job retries itself.
               if (!r.complete && job.attempts + 1 < MAX_ATTEMPTS) {
-                await db.from("webhook_logs").update({ attempts: job.attempts + 1, error: "waiting for Plaid to finish the initial pull" }).eq("id", job.id);
+                await settleJob(job.id, { attempts: job.attempts + 1, error: "waiting for Plaid to finish the initial pull" });
                 continue;
               }
             }
@@ -210,11 +235,11 @@ async function processJobs() {
           log(`item ${itemId} ${code}`, job.payload?.error?.error_code ?? ""); // surfaced via webhook_logs; re-auth needs Link update mode
         }
       }
-      await db.from("webhook_logs").update({ processed: true, error: null }).eq("id", job.id);
+      await settleJob(job.id, { processed: true, error: null });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       log(`job ${type}/${code} failed:`, msg);
-      await db.from("webhook_logs").update({ attempts: job.attempts + 1, error: msg.slice(0, 500) }).eq("id", job.id);
+      await settleJob(job.id, { attempts: job.attempts + 1, error: msg.slice(0, 500) });
     }
   }
 }
