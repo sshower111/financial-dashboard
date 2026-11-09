@@ -9,6 +9,8 @@ import { detectRecurring } from "./recurring.ts";
 import { cashFlow, cashFlowDelta, spendByCategory } from "./cashflow.ts";
 import { demoAccounts, demoBudgets, demoFx, demoTransactions } from "../demo.ts";
 import type { Account, Transaction } from "../types.ts";
+import { impossibleCategory, plausibleMerchant } from "../ai/categorize.ts";
+import { questionMatches } from "../ai/context.ts";
 
 const NOW = new Date("2026-11-04T15:00:00");
 const fxUsd = buildFxTable(demoFx, "USD");
@@ -209,4 +211,31 @@ test("re-link detection: same bank login matches one-to-one by type + last 4; ne
   // a family member's separate login with identically named accounts is NOT a duplicate
   const theirs = [{ account_id: "f1", name: "TOTAL CHECKING", type: "depository", subtype: "checking", mask: "5555" }];
   assert.equal(matchExisting(theirs, existing).size, 0);
+});
+
+test("categorizer guards: no Income on spending, merchant name must fit the bank text", () => {
+  assert.equal(impossibleCategory("Income", 42), true);
+  assert.equal(impossibleCategory("Income", -42), false);
+  assert.equal(impossibleCategory("Groceries", 42), false);
+  assert.equal(plausibleMerchant("Anthropic", "LYFT *CANC FEE 09-25 VANCOUVER, BC"), false);
+  assert.equal(plausibleMerchant("XMarket", "99 MARKET #1032"), false);
+  assert.equal(plausibleMerchant("Uber Eats", "UBER CANADA/UBEREATS TORONTO, ON"), true);
+  assert.equal(plausibleMerchant("Pilot Coffee", "SQ *PILOT COFFEE ROAST 4821"), true);
+  assert.equal(plausibleMerchant("H Mart", "HMART VANCOUVER"), true);
+  assert.equal(plausibleMerchant("Amazon", "AMZN Mktp US*2K4"), true);
+  assert.equal(plausibleMerchant("Walmart", "WM SUPERCENTER #1584"), true);
+});
+
+test("assistant question matching: rideshare means Uber / Lyft, not Uber Eats, summed per month", () => {
+  const fx = buildFxTable(demoFx, "USD");
+  const tx = (id: string, date: string, raw: string, amount: number): Transaction => ({
+    id, account_id: "a", amount, iso_currency_code: "USD", date, raw_merchant_string: raw, cleaned_merchant_name: null,
+    category: "Income", subcategory: null, ai_confidence_score: 0.9, ai_tags: [], is_anomaly: false, is_pending: false, created_at: date,
+  });
+  const txns = [tx("1", "2026-10-03", "LYFT *RIDE TUE 7PM", 20), tx("2", "2026-10-20", "UBER *TRIP", 10), tx("3", "2026-09-02", "LYFT *CANC FEE", 5),
+    tx("4", "2026-10-05", "UBER CANADA/UBEREATS TORONTO", 30), tx("5", "2026-10-06", "COSTCO WHSE", 100)];
+  const m = questionMatches("How much do I spend on share ride service per month?", txns, fx)!;
+  assert.deepEqual(m.monthly.map((x) => [x.month, x.count, x.spent]), [["2026-10", 2, 30], ["2026-09", 1, 5]]);
+  // no topic phrase: question words that name a merchant
+  assert.equal(questionMatches("costco spending", txns, fx)!.monthly[0].spent, 100);
 });

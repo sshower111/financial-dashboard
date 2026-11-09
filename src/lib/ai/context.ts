@@ -7,16 +7,61 @@ import { detectAnomalies } from "../finance/anomaly.ts";
 import { budgetPacing } from "../finance/pacing.ts";
 import { convert } from "../finance/fx.ts";
 import { accountLabel } from "../format.ts";
+import { isTransfer } from "../finance/transfers.ts";
+
+/** Everyday phrases → merchants / categories they mean (rideshare must not pull in Uber Eats). */
+const TOPICS: { ask: RegExp; match: RegExp; not?: RegExp; label: string }[] = [
+  { ask: /\b(ride ?share|share ?ride|ride[- ]?hail|uber(?![\s*]*eats)|lyft|taxi|cab)s?\b/i, match: /\b(uber|lyft|taxi|cab)\b/i, not: /eats/i, label: "rideshare (Uber, Lyft, taxi)" },
+  { ask: /\b(food delivery|delivery|takeout|take-out|uber ?eats|doordash|skip the dishes|instacart)\b/i, match: /\b(uber[\s*]*eats|doordash|skip ?the ?dishes|instacart|grubhub|food delivery)\b/i, label: "food delivery" },
+  { ask: /\b(gas|fuel|petrol)\b/i, match: /\b(gas|fuel|shell|esso|petro|chevron|exxon|circle k)\b/i, label: "gas / fuel" },
+  { ask: /\b(coffee|cafe|starbucks|tim hortons)\b/i, match: /\b(coffee|cafe|starbucks|tim hortons)\b/i, label: "coffee" },
+];
+const STOP = new Set("about after also amount average been between could does each from have help into last least many month monthly months more much past paid pay spend spent than that their them they this those total what when which with year years your".split(" "));
+
+/**
+ * Transactions from the WHOLE history that the question is about: topic phrases (rideshare, delivery…),
+ * or question words that name a merchant / category / subcategory. Pre-summed per month so a small
+ * model reads the answer instead of adding up rows.
+ */
+export function questionMatches(question: string, txns: Transaction[], fx: FxTable) {
+  const topics = TOPICS.filter((t) => t.ask.test(question));
+  const words = (question.toLowerCase().match(/[a-z][a-z0-9&']{3,}/g) ?? []).filter((w) => !STOP.has(w));
+  const fields = (t: Transaction) => `${t.cleaned_merchant_name ?? ""} ${t.raw_merchant_string} ${t.category ?? ""} ${t.subcategory ?? ""}`;
+  const wordHit = (t: Transaction) => {
+    const toks = new Set(fields(t).toLowerCase().split(/[^a-z0-9&']+/));
+    return words.some((w) => toks.has(w) || toks.has(w.replace(/s$/, "")));
+  };
+  // topics match the bank's merchant text only: AI subcategories can be wrong (e.g. airlines tagged "Rideshare")
+  const merchant = (t: Transaction) => `${t.cleaned_merchant_name ?? ""} ${t.raw_merchant_string}`;
+  const hits = txns.filter((t) => !isTransfer(t) && (topics.length ? topics.some((p) => p.match.test(merchant(t)) && !p.not?.test(merchant(t))) : wordHit(t)));
+  if (!hits.length) return null;
+  const months = new Map<string, { count: number; spent: number; refunds: number }>();
+  for (const t of hits) {
+    let v = 0; try { v = convert(t.amount, t.iso_currency_code, fx); } catch { continue; }
+    const m = months.get(t.date.slice(0, 7)) ?? { count: 0, spent: 0, refunds: 0 };
+    m.count++; if (v > 0) m.spent += v; else m.refunds -= v;
+    months.set(t.date.slice(0, 7), m);
+  }
+  return {
+    matchedOn: topics.length ? topics.map((t) => t.label) : words,
+    note: "Every matching transaction in the full history, summed per month in the base currency (spent = money out, refunds = money back). Months not listed had none.",
+    monthly: [...months].sort(([a], [b]) => b.localeCompare(a)).map(([month, m]) => ({ month, count: m.count, spent: r2(m.spent), refunds: r2(m.refunds) })),
+    rowsFormat: "date|merchant|amount(native,+=spent)|ccy|category",
+    rows: hits.slice(0, 150).map((t) => [t.date, t.cleaned_merchant_name ?? t.raw_merchant_string, t.amount, t.iso_currency_code, t.category ?? "?"].join("|")),
+  };
+}
 
 export interface Ledger { accounts: Account[]; transactions: Transaction[]; holdings: Holding[]; budgets: Budget[]; fx: FxTable; base: string }
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
+/** last day of a "YYYY-MM" month */
+const endOf = (ym: string) => { const [y, m] = ym.split("-").map(Number); return addDays(m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, "0")}-01`, -1); };
 
 /**
  * Compact, pre-aggregated snapshot of the ledger for the copilot prompt.
  * Numbers are computed here (deterministically) so the model explains rather than does arithmetic.
  */
-export function buildLedgerContext(l: Ledger, now = new Date()): string {
+export function buildLedgerContext(l: Ledger, now = new Date(), question = ""): string {
   const today = todayKey(now);
   const nw = computeNetWorth(l.accounts, l.fx);
   const weeks = [0, 1, 2, 3].map((w) => {
@@ -40,6 +85,11 @@ export function buildLedgerContext(l: Ledger, now = new Date()): string {
     monthly.push({ month: m, spend: r2(cf.outflow), income: r2(cf.inflow) });
     m = next;
   }
+  // spending by category for each of the last 6 calendar months (current month to date)
+  const byCategory = monthly.slice(-6).reverse().map(({ month }) => ({
+    month, categories: spendByCategory(l.transactions, l.fx, `${month}-01`, today < endOf(month) ? today : endOf(month)).slice(0, 10).map((c) => ({ ...c, amount: r2(c.amount) })),
+  }));
+  const matches = question ? questionMatches(question, l.transactions, l.fx) : null;
   const dow = parseKey(today).getUTCDay();
   return JSON.stringify({
     today, weekday: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dow], baseCurrency: l.base,
@@ -51,6 +101,8 @@ export function buildLedgerContext(l: Ledger, now = new Date()): string {
     forecast30d: { start: r2(fc.start), end: r2(fc.end), min: r2(fc.min), minDate: fc.minDate, weather: fc.weather, dailyDiscretionaryBurn: r2(fc.dailyBurn), upcoming: fc.events.slice(0, 15).map((e) => ({ ...e, amount: r2(e.amount) })) },
     recurring: fc.streams.map((s) => ({ merchant: s.merchant, everyDays: s.cadenceDays, amount: r2(s.amount), ccy: s.currency, direction: s.direction, next: s.nextDate })),
     anomalies: detectAnomalies(l.transactions, { now }).map((a) => ({ kind: a.kind, title: a.title, detail: a.detail, date: a.date })),
+    ...(matches ? { matchingTransactions: matches } : {}),
+    monthlySpendByCategory: byCategory,
     history: { oldestTransaction: oldest, transactionCount: l.transactions.length, monthlyTotalsBase: monthly, note: "recentTransactions lists only the last 45 days; older months are in monthlyTotalsBase" },
     recentTransactionsFormat:"date|merchant|amount(native,+=spent)|ccy|amount(base)|category|flag",
     recentTransactions: recent,

@@ -53,7 +53,7 @@ The owner works on **Windows PowerShell 5.1**: `&&` doesn't work there. Give com
 2. Not yet checked against real data: the live sync-progress indicator, the cached/batched categorization path, and the duplicate flag + Remove after b2be63f (see HANDOFF §6).
 3. Open question: a "session" label the owner saw in Live activity is not in the code; probably a raw bank string or AI subcategory.
 4. Roadmap: Plaid Link update mode (`ITEM_LOGIN_REQUIRED`), encrypting access tokens (Supabase Vault), CSV import for brokers Plaid doesn't cover.
-5. Categorization: merchant cache first (in-memory, built from categorized rows, keyed by `merchantKey()` in `src/lib/ai/merchant.ts`), then up to `CATEGORIZE_BATCH`=50 deduped merchants per call to `OLLAMA_CATEGORIZE_MODEL` (default `qwen2.5:1.5b`, falls back to `OLLAMA_MODEL`). Failing batches split in half; a merchant failing 3 times gets the regex rules.
+5. Categorization: merchant cache first (in-memory, built from categorized rows, keyed by `merchantKey()` in `src/lib/ai/merchant.ts`), then up to `CATEGORIZE_BATCH`=20 deduped merchants per call to `OLLAMA_CATEGORIZE_MODEL` (default `qwen2.5:1.5b`, falls back to `OLLAMA_MODEL`). Failing batches split in half; a merchant failing 3 times gets the regex rules.
 
 ## Regenerating README media
 

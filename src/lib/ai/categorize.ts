@@ -5,6 +5,28 @@ import { TRANSFER_RE } from "../finance/transfers.ts";
 export interface CategorizeInput { id: string; raw: string; amount: number; currency: string; merchantHint?: string | null }
 export interface CategorizeResult { id: string; merchant: string; category: Category; subcategory: string; confidence: number; tags: string[]; source: "llm" | "rules" }
 
+// Small models drift to the first enum value; with "Income" first, a 1.5B model labelled Costco,
+// Lyft etc. as Income. Spending categories go first, Income / Transfer last.
+const MODEL_CATEGORIES = [...CATEGORIES.filter((c) => c !== "Income" && c !== "Transfer"), "Transfer", "Income"];
+
+const toks = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").split(" ").filter((w) => w.length >= 3);
+/**
+ * Does the model's merchant name plausibly belong to this bank text? Small models in big batches
+ * sometimes copy another item's answer ("LYFT *CANC FEE" → "Anthropic"). Passes when any word of the
+ * name is contained in the raw text / Plaid hint, or shares its first 3 letters with one of its words.
+ */
+export function plausibleMerchant(merchant: string, raw: string, hint?: string | null) {
+  const m = toks(merchant);
+  if (!m.length) return true;
+  // common bank abbreviations of brand names
+  const expanded = `${raw} ${hint ?? ""}`.replace(/\bamzn\b/gi, "amazon").replace(/\b(wm|wal-mart)\b/gi, "walmart").replace(/\bsq\b/gi, "");
+  const src = toks(expanded), joined = src.join("");
+  return m.some((w) => joined.includes(w) || src.some((s) => s.slice(0, 3) === w.slice(0, 3)));
+}
+
+/** Money going out can't be income (refunds coming IN can be anything). */
+export const impossibleCategory = (category: string, amount: number) => category === "Income" && amount > 0;
+
 const SCHEMA = {
   type: "object",
   properties: {
@@ -15,7 +37,7 @@ const SCHEMA = {
         properties: {
           id: { type: "string" },
           merchant: { type: "string" },
-          category: { type: "string", enum: [...CATEGORIES] },
+          category: { type: "string", enum: MODEL_CATEGORIES },
           subcategory: { type: "string" },
           confidence: { type: "number" },
           tags: { type: "array", items: { type: "string" } },
@@ -30,11 +52,11 @@ const SCHEMA = {
 const SYSTEM = `You categorize bank transactions for a personal ledger (primarily US banks and cards).
 For each item:
 - merchant: the clean, human brand name ("SQ *PILOT COFFEE ROAST 4821" → "Pilot Coffee"). Strip processor prefixes (SQ *, TST*, PAYPAL *), store numbers, cities, phone numbers and reference codes.
-- category: exactly one of ${CATEGORIES.join(", ")}.
+- category: exactly one of ${MODEL_CATEGORIES.join(", ")}. "Income" ONLY for money received (dir "in"): payroll, deposits, payouts. A purchase (dir "out") is never Income.
 - subcategory: 1–3 words (e.g. "Coffee", "Supermarket", "Rideshare", "Payroll").
 - confidence: 0..1, how sure you are of the category.
 - tags: 0–3 lowercase tags from: subscription, fixed, travel, work, gift, cash, refund, salary, freelance, foreign.
-Amounts: positive = money spent, negative = money received. Credit-card payments and transfers between own accounts are "Transfer".
+Amounts: positive = money spent (dir "out"), negative = money received (dir "in"). Credit-card payments and transfers between own accounts are "Transfer".
 Return JSON only.`;
 
 export interface LLMOptions {
@@ -51,14 +73,15 @@ export interface LLMOptions {
  */
 export async function categorizeWithLLM(items: CategorizeInput[], opts: LLMOptions | number = {}): Promise<CategorizeResult[]> {
   const { timeoutMs = 300_000, model, missing = "rules" } = typeof opts === "number" ? { timeoutMs: opts } : opts;
-  const prompt = JSON.stringify(items.map((i, n) => ({ id: String(n + 1), raw: i.raw, amount: i.amount, currency: i.currency, hint: i.merchantHint ?? undefined })));
+  const prompt = JSON.stringify(items.map((i, n) => ({ id: String(n + 1), raw: i.raw, amount: i.amount, dir: i.amount > 0 ? "out" : "in", currency: i.currency, hint: i.merchantHint ?? undefined })));
   const text = await generate({ system: SYSTEM, prompt, format: SCHEMA, temperature: 0, timeoutMs, model });
   const parsed = JSON.parse(text) as { results?: Partial<CategorizeResult>[] };
   if (!Array.isArray(parsed.results)) throw new Error("model returned no results array");
   const byId = new Map(parsed.results.map((r) => [String(r.id), r]));
   return items.flatMap((i, n): CategorizeResult[] => {
     const r = byId.get(String(n + 1));
-    if (!r) return missing === "rules" ? [categorizeWithRules(i)] : [];
+    // missing, or an impossible label (Income on money out): rules now, or omit so the caller retries
+    if (!r || impossibleCategory(String(r.category), i.amount) || !plausibleMerchant(String(r.merchant ?? ""), i.raw, i.merchantHint)) return missing === "rules" ? [categorizeWithRules(i)] : [];
     const category = (CATEGORIES as readonly string[]).includes(r.category as string) ? (r.category as Category) : "Other";
     return [{
       id: i.id, category, source: "llm",

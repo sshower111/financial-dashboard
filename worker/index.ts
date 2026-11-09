@@ -19,7 +19,7 @@ const { supabaseAdmin } = await import("../src/lib/supabase/admin.ts");
 const { plaid, ACCOUNT_TYPES, SUPPORTED_CCY } = await import("../src/lib/plaid.ts");
 const { matchExisting } = await import("../src/lib/link-dedupe.ts");
 const { guessDashboard } = await import("../src/lib/finance/scope.ts");
-const { categorizeWithLLM, categorizeWithRules } = await import("../src/lib/ai/categorize.ts");
+const { categorizeWithLLM, categorizeWithRules, impossibleCategory, plausibleMerchant } = await import("../src/lib/ai/categorize.ts");
 const { cacheKey } = await import("../src/lib/ai/merchant.ts");
 const { hasModel, ollamaModels, OLLAMA_CATEGORIZE_MODEL, OLLAMA_MODEL, OLLAMA_URL } = await import("../src/lib/ai/ollama.ts");
 const { detectAnomalies } = await import("../src/lib/finance/anomaly.ts");
@@ -252,7 +252,8 @@ async function processJobs() {
 //    of up to CATEGORIZE_BATCH merchants. A failing batch is split in half and retried; a single
 //    merchant that keeps failing falls back to the regex rules so the queue never stalls.
 // 3. repeated failures (Ollama down, model missing) back off exponentially; cache hits keep flowing.
-const BATCH = Math.max(1, Number(process.env.CATEGORIZE_BATCH ?? 50));
+// 20, not 50: with 50 the 1.5B model copied answers onto the wrong items (see plausibleMerchant)
+const BATCH = Math.max(1, Number(process.env.CATEGORIZE_BATCH ?? 20));
 const FETCH = 1000;                       // queued rows examined per pass (cache hits are cheap)
 const LLM_TIMEOUT = Number(process.env.OLLAMA_TIMEOUT_MS ?? 600_000);
 const CACHE_TTL = 15 * 60_000;
@@ -285,7 +286,9 @@ async function buildCache() {
     for (const r of data ?? []) {
       const k = keyOf(r);
       const conf = r.ai_confidence_score == null ? 1 : Number(r.ai_confidence_score);
-      if (!k || cache.has(k) || conf < MIN_CACHE_CONFIDENCE) continue;
+      // never propagate a label that is impossible (Income on spend) or belongs to another merchant
+      if (!k || cache.has(k) || conf < MIN_CACHE_CONFIDENCE || impossibleCategory(r.category, Number(r.amount))
+        || (r.cleaned_merchant_name && !plausibleMerchant(r.cleaned_merchant_name, r.raw_merchant_string))) continue;
       cache.set(k, { cleaned_merchant_name: r.cleaned_merchant_name ?? r.raw_merchant_string, category: r.category, subcategory: r.subcategory, ai_confidence_score: conf, ai_tags: cleanTags(r.ai_tags) });
     }
     if ((data ?? []).length < 1000) break;
@@ -340,7 +343,7 @@ async function llmWithSplit(items: Queued[], model: string): Promise<Map<string,
   try {
     const res = await categorizeWithLLM(items.map(toInput), { model, timeoutMs: LLM_TIMEOUT, missing: "omit" });
     for (const r of res) { out.set(r.id, r); itemFails.delete(r.id); }
-    for (const t of items) if (!out.has(t.id)) bump(t, "missing from model output");
+    for (const t of items) if (!out.has(t.id)) bump(t, "missing or impossible label in model output");
     return out;
   } catch (e) {
     if (fatal(e)) throw e;

@@ -29,7 +29,7 @@ export async function POST(req: Request) {
   const name = dashboardName(dashboardList(data.dashboards, data.accounts), dash);
   data = scopeLedger(markTransfers(data), dash);
   const context = `Dashboard: ${name}. The figures below cover only this dashboard's accounts.
-` + buildLedgerContext(toLedger(data, base ?? data.base));
+` + buildLedgerContext(toLedger(data, base ?? data.base), new Date(), question);
   const history = messages.slice(-7, -1).map((m) => `${m.role === "user" ? "User" : "Copilot"}: ${m.content}`).join("\n");
   const prompt = `LEDGER SNAPSHOT (JSON):\n${context}\n\n${history ? `CONVERSATION SO FAR:\n${history}\n\n` : ""}User: ${question}\nCopilot:`;
 
