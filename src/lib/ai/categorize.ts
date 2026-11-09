@@ -2,7 +2,11 @@ import { CATEGORIES, type Category } from "../types.ts";
 import { generate } from "./ollama.ts";
 import { P2P_RE, TRANSFER_RE } from "../finance/transfers.ts";
 
-export interface CategorizeInput { id: string; raw: string; amount: number; currency: string; merchantHint?: string | null }
+export interface CategorizeInput {
+  id: string; raw: string; amount: number; currency: string; merchantHint?: string | null;
+  /** Plaid's personal_finance_category.detailed (e.g. FOOD_AND_DRINK_FAST_FOOD) and its confidence */
+  plaid?: string | null; plaidConfidence?: string | null;
+}
 export interface CategorizeResult { id: string; merchant: string; category: Category; subcategory: string; confidence: number; tags: string[]; source: "llm" | "rules" }
 
 // Small models drift to the first enum value; with "Income" first, a 1.5B model labelled Costco,
@@ -49,6 +53,51 @@ export function forcedLabel(i: CategorizeInput): CategorizeResult | null {
   return null;
 }
 
+// Plaid category (detailed code, matched by prefix, most specific first) → ours. GENERAL_SERVICES and
+// GOVERNMENT_AND_NON_PROFIT are too broad to map: the model decides those.
+const PLAID_MAP: [string, Category][] = [
+  ["INCOME", "Income"], ["TRANSFER_IN", "Transfer"], ["TRANSFER_OUT", "Transfer"], ["LOAN_PAYMENTS", "Transfer"],
+  ["BANK_FEES", "Fees"], ["ENTERTAINMENT", "Entertainment"], ["FOOD_AND_DRINK_GROCERIES", "Groceries"], ["FOOD_AND_DRINK", "Dining"],
+  ["GENERAL_MERCHANDISE", "Shopping"], ["HOME_IMPROVEMENT", "Shopping"], ["MEDICAL", "Health"], ["PERSONAL_CARE", "Health"],
+  ["TRANSPORTATION", "Transport"], ["TRAVEL", "Travel"], ["RENT_AND_UTILITIES_RENT", "Housing"], ["RENT_AND_UTILITIES", "Utilities"],
+];
+const PRIMARIES = ["INCOME", "TRANSFER_IN", "TRANSFER_OUT", "LOAN_PAYMENTS", "BANK_FEES", "ENTERTAINMENT", "FOOD_AND_DRINK", "GENERAL_MERCHANDISE", "HOME_IMPROVEMENT", "MEDICAL", "PERSONAL_CARE", "GENERAL_SERVICES", "GOVERNMENT_AND_NON_PROFIT", "TRANSPORTATION", "TRAVEL", "RENT_AND_UTILITIES"];
+const SUBSCRIPTION = /netflix|spotify|apple\.com\/bill|disney|hulu|max\.com|youtube|crave|prime video|patreon|openai|chatgpt|anthropic|claude\.ai|icloud|google \*?(one|storage)|adobe/i;
+const HIGH = new Set(["VERY_HIGH", "HIGH"]);
+
+/** Our category for Plaid's code, or null when Plaid has none / it's too broad / it contradicts the direction. */
+export function plaidCategory(i: Pick<CategorizeInput, "plaid" | "raw" | "amount">): { category: Category; subcategory: string } | null {
+  const code = i.plaid?.toUpperCase();
+  if (!code) return null;
+  const hit = PLAID_MAP.find(([p]) => code.startsWith(p));
+  if (!hit) return null;
+  const category: Category = SUBSCRIPTION.test(i.raw) && i.amount > 0 ? "Subscriptions" : hit[1];
+  if (impossibleCategory(category, i.amount)) return null;
+  const primary = PRIMARIES.find((p) => code.startsWith(p + "_")) ?? "";
+  const rest = code.slice(primary ? primary.length + 1 : 0).replace(/_/g, " ").toLowerCase();
+  return { category, subcategory: (rest.charAt(0).toUpperCase() + rest.slice(1)).slice(0, 40) };
+}
+
+/**
+ * Label straight from Plaid, no model: Plaid is confident about the category and already supplied a
+ * clean merchant name. Most card purchases qualify, which keeps the local model for the leftovers.
+ */
+export function plaidLabel(i: CategorizeInput): CategorizeResult | null {
+  if (!i.merchantHint || !HIGH.has(String(i.plaidConfidence).toUpperCase())) return null;
+  const p = plaidCategory(i);
+  return p && { id: i.id, merchant: i.merchantHint.slice(0, 80), ...p, source: "rules", tags: ["plaid-pfc"], confidence: String(i.plaidConfidence).toUpperCase() === "VERY_HIGH" ? 0.95 : 0.85 };
+}
+
+/** Plaid overrides the model where the model is known to drift: Plaid confident, or the model said "Transfer" for a purchase Plaid files elsewhere. */
+function reconcile(r: CategorizeResult, i: CategorizeInput): CategorizeResult {
+  const p = plaidCategory(i);
+  if (!p) return r;
+  const plaidSure = HIGH.has(String(i.plaidConfidence).toUpperCase());
+  if ((plaidSure && p.category !== r.category) || (r.category === "Transfer" && p.category !== "Transfer"))
+    return { ...r, category: p.category, subcategory: p.subcategory };
+  return r;
+}
+
 /** Money going out can't be income (refunds coming IN can be anything). */
 export const impossibleCategory = (category: string, amount: number) => category === "Income" && amount > 0;
 
@@ -81,7 +130,8 @@ For each item:
 - subcategory: 1–3 words (e.g. "Coffee", "Supermarket", "Rideshare", "Payroll").
 - confidence: 0..1, how sure you are of the category.
 - tags: 0–3 lowercase tags from: subscription, fixed, travel, work, gift, cash, refund, salary, freelance, foreign.
-Amounts: positive = money spent (dir "out"), negative = money received (dir "in"). Credit-card payments and transfers between own accounts are "Transfer".
+Amounts: positive = money spent (dir "out"), negative = money received (dir "in"). Credit-card payments and transfers between own accounts are "Transfer"; a purchase at a shop or restaurant never is.
+"plaid", when present, is the bank aggregator's category code for the item: a strong hint.
 Return JSON only.`;
 
 export interface LLMOptions {
@@ -104,7 +154,7 @@ export async function categorizeWithLLM(items: CategorizeInput[], opts: LLMOptio
     const rest = items.filter((i) => !done.has(i.id));
     return [...forced, ...(rest.length ? await categorizeWithLLM(rest, { timeoutMs, model, missing }) : [])];
   }
-  const prompt = JSON.stringify(items.map((i, n) => ({ id: String(n + 1), raw: i.raw, amount: i.amount, dir: i.amount > 0 ? "out" : "in", currency: i.currency, hint: i.merchantHint ?? undefined })));
+  const prompt = JSON.stringify(items.map((i, n) => ({ id: String(n + 1), raw: i.raw, amount: i.amount, dir: i.amount > 0 ? "out" : "in", currency: i.currency, hint: i.merchantHint ?? undefined, plaid: i.plaid ?? undefined })));
   const text = await generate({ system: SYSTEM, prompt, format: SCHEMA, temperature: 0, timeoutMs, model });
   const parsed = JSON.parse(text) as { results?: Partial<CategorizeResult>[] };
   if (!Array.isArray(parsed.results)) throw new Error("model returned no results array");
@@ -114,13 +164,13 @@ export async function categorizeWithLLM(items: CategorizeInput[], opts: LLMOptio
     // missing, or an impossible label (Income on money out): rules now, or omit so the caller retries
     if (!r || impossibleCategory(String(r.category), i.amount) || !plausibleMerchant(String(r.merchant ?? ""), i.raw, i.merchantHint)) return missing === "rules" ? [categorizeWithRules(i)] : [];
     const category = (CATEGORIES as readonly string[]).includes(r.category as string) ? (r.category as Category) : "Other";
-    return [{
+    return [reconcile({
       id: i.id, category, source: "llm",
       merchant: (r.merchant || i.merchantHint || i.raw).slice(0, 80),
       subcategory: (r.subcategory || "").slice(0, 40),
       confidence: Math.max(0, Math.min(1, Number(r.confidence) || 0.5)),
       tags: (r.tags ?? []).filter((t) => typeof t === "string").slice(0, 3),
-    }];
+    }, i)];
   });
 }
 

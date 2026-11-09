@@ -19,7 +19,7 @@ const { supabaseAdmin } = await import("../src/lib/supabase/admin.ts");
 const { plaid, ACCOUNT_TYPES, SUPPORTED_CCY } = await import("../src/lib/plaid.ts");
 const { matchExisting } = await import("../src/lib/link-dedupe.ts");
 const { guessDashboard } = await import("../src/lib/finance/scope.ts");
-const { categorizeWithLLM, categorizeWithRules, forcedLabel, impossibleCategory, plausibleMerchant } = await import("../src/lib/ai/categorize.ts");
+const { categorizeWithLLM, categorizeWithRules, forcedLabel, impossibleCategory, plaidLabel, plausibleMerchant } = await import("../src/lib/ai/categorize.ts");
 const { cacheKey } = await import("../src/lib/ai/merchant.ts");
 const { hasModel, ollamaModels, OLLAMA_CATEGORIZE_MODEL, OLLAMA_MODEL, OLLAMA_URL } = await import("../src/lib/ai/ollama.ts");
 const { detectAnomalies } = await import("../src/lib/finance/anomaly.ts");
@@ -116,6 +116,8 @@ async function syncTransactions(item: Item) {
       raw_merchant_string: t.original_description ?? t.name, is_pending: t.pending,
       // Plaid's merchant name is only a hint; the LLM pass may refine it
       cleaned_merchant_name: t.merchant_name ?? null,
+      plaid_category: t.personal_finance_category?.detailed ?? null,
+      plaid_category_confidence: t.personal_finance_category?.confidence_level ?? null,
     };
   };
   // Plaid already knows card payments / own-account transfers: label new ones "Transfer" up front
@@ -263,7 +265,7 @@ const MIN_CACHE_CONFIDENCE = 0.6;         // don't propagate low-confidence gues
 const ITEM_MAX_FAILS = 3;
 const DRAIN_MS = 120_000;                 // max time per tick on categorization, so Plaid jobs aren't starved
 
-interface Queued { id: string; user_id: string; raw_merchant_string: string; cleaned_merchant_name: string | null; amount: number; iso_currency_code: string }
+interface Queued { id: string; user_id: string; raw_merchant_string: string; cleaned_merchant_name: string | null; amount: number; iso_currency_code: string; plaid_category: string | null; plaid_category_confidence: string | null }
 interface Labels { cleaned_merchant_name: string; category: string; subcategory: string | null; ai_confidence_score: number; ai_tags: string[] }
 
 const cache = new Map<string, Labels>();
@@ -314,7 +316,7 @@ async function writeLabels(rows: { row: Queued; labels: Labels }[]) {
 }
 
 const toLabels = (r: CategorizeResult): Labels => ({ cleaned_merchant_name: r.merchant, category: r.category, subcategory: r.subcategory, ai_confidence_score: Math.round(r.confidence * 100) / 100, ai_tags: r.tags });
-const toInput = (t: Queued): CategorizeInput => ({ id: t.id, raw: t.raw_merchant_string, amount: Number(t.amount), currency: t.iso_currency_code, merchantHint: t.cleaned_merchant_name });
+const toInput = (t: Queued): CategorizeInput => ({ id: t.id, raw: t.raw_merchant_string, amount: Number(t.amount), currency: t.iso_currency_code, merchantHint: t.cleaned_merchant_name, plaid: t.plaid_category, plaidConfidence: t.plaid_category_confidence });
 const describe = (e: unknown) => e instanceof Error ? (e.name === "TimeoutError" ? `timed out after ${Math.round(LLM_TIMEOUT / 1000)}s` : e.message) : String(e);
 /** errors where splitting the batch can't help */
 const fatal = (e: unknown) => /not found|fetch failed|ECONNREFUSED|ENOTFOUND/i.test(describe(e) + String((e as { cause?: unknown })?.cause ?? ""));
@@ -360,23 +362,24 @@ async function llmWithSplit(items: Queued[], model: string): Promise<Map<string,
 /** One categorization pass. Returns true if it made progress and more work may remain. */
 async function categorize(): Promise<boolean> {
   if (Date.now() - cacheBuiltAt > CACHE_TTL) await buildCache();
-  const { data, error } = await db.from("transactions").select("id,user_id,raw_merchant_string,cleaned_merchant_name,amount,iso_currency_code")
+  const { data, error } = await db.from("transactions").select("id,user_id,raw_merchant_string,cleaned_merchant_name,amount,iso_currency_code,plaid_category,plaid_category_confidence")
     .is("category", null).order("created_at").limit(FETCH);
   if (error) throw error;
   const queued = (data ?? []) as Queued[];
   if (!queued.length) return false;
 
-  // 1. bank wording that decides the label on its own (e-Transfers, direct deposits), then the cache
+  // 1. bank wording that decides the label on its own (e-Transfers, direct deposits), then Plaid's
+  //    category when Plaid is confident and named the merchant, then the cache
   const t0 = Date.now();
   const hits: { row: Queued; labels: Labels }[] = [], misses: Queued[] = [];
   for (const r of queued) {
-    const f = forcedLabel(toInput(r));
+    const f = forcedLabel(toInput(r)) ?? plaidLabel(toInput(r));
     if (f) { hits.push({ row: r, labels: toLabels(f) }); continue; }
     const c = cache.get(keyOf(r)); if (c) hits.push({ row: r, labels: c }); else misses.push(r);
   }
   if (hits.length) {
     await writeLabels(hits);
-    log(`cache: ${hits.length} of ${queued.length} queued applied instantly (${Date.now() - t0}ms), ${misses.length} need the LLM`);
+    log(`rules / Plaid / cache: ${hits.length} of ${queued.length} queued labelled instantly (${Date.now() - t0}ms), ${misses.length} need the LLM`);
   }
   if (!misses.length) return true;
 

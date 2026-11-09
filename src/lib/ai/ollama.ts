@@ -5,8 +5,8 @@
 export const OLLAMA_URL = (process.env.OLLAMA_URL ?? "http://localhost:11434").replace(/\/$/, "");
 /** Assistant (chat) model: quality matters more than speed. */
 export const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "qwen3.5:9b";
-/** Worker categorization model: a short classification task, so a small fast model is enough on CPU. */
-export const OLLAMA_CATEGORIZE_MODEL = process.env.OLLAMA_CATEGORIZE_MODEL ?? "qwen2.5:1.5b";
+/** Worker categorization model. Defaults to the assistant model: Plaid labels most rows, so the model only sees leftovers and quality beats speed (a 1.5B model filed Burger King as "Transfer"). */
+export const OLLAMA_CATEGORIZE_MODEL = process.env.OLLAMA_CATEGORIZE_MODEL ?? OLLAMA_MODEL;
 /** `think` is only understood by reasoning-capable models; others may reject the field. */
 const THINKS = /qwen3|deepseek-r1|gpt-oss|magistral/i;
 

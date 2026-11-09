@@ -267,3 +267,17 @@ test("forced labels: e-Transfers are payments to people, direct deposits are inc
   assert.equal(TRANSFER_RE.test("INTERAC E-TRANSFER TO JOHN SMITH"), false);
   assert.equal(TRANSFER_RE.test("Online Transfer from SAV ...9318"), true);
 });
+
+test("Plaid category: confident + named merchant labels directly; Transfer from the model is overruled", async () => {
+  const { plaidCategory, plaidLabel } = await import("../ai/categorize.ts");
+  const base = { id: "1", currency: "CAD", raw: "BURGER KING #28512 RICHMOND HILL, ON", amount: 2.1 };
+  assert.deepEqual(plaidCategory({ ...base, plaid: "FOOD_AND_DRINK_FAST_FOOD" }), { category: "Dining", subcategory: "Fast food" });
+  assert.equal(plaidCategory({ ...base, plaid: "FOOD_AND_DRINK_GROCERIES" })?.category, "Groceries");
+  assert.equal(plaidCategory({ ...base, plaid: "RENT_AND_UTILITIES_TELEPHONE" })?.category, "Utilities");
+  assert.equal(plaidCategory({ ...base, plaid: "GENERAL_SERVICES_INSURANCE" }), null, "too broad: model decides");
+  assert.equal(plaidCategory({ ...base, plaid: "INCOME_WAGES" }), null, "income on money out is impossible");
+  assert.equal(plaidCategory({ ...base, raw: "NETFLIX.COM", plaid: "ENTERTAINMENT_TV_AND_MOVIES" })?.category, "Subscriptions");
+  assert.equal(plaidLabel({ ...base, plaid: "FOOD_AND_DRINK_FAST_FOOD", plaidConfidence: "VERY_HIGH", merchantHint: "Burger King" })?.category, "Dining");
+  assert.equal(plaidLabel({ ...base, plaid: "FOOD_AND_DRINK_FAST_FOOD", plaidConfidence: "VERY_HIGH" }), null, "no merchant name: model names it");
+  assert.equal(plaidLabel({ ...base, plaid: "FOOD_AND_DRINK_FAST_FOOD", plaidConfidence: "LOW", merchantHint: "Burger King" }), null);
+});
