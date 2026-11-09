@@ -63,7 +63,7 @@ export function loadDemoOwners(): Record<string, string | null> | null { return 
 
 export function loadDemoNicknames(): Record<string, string | null> | null { return lsGet(LS.nicknames); }
 
-/** Rename an account (null = back to the bank's name). Live: column-granted update on accounts.nickname (0006). */
+/** Rename an account (null = back to the bank's name). Live: column-granted update on accounts.nickname (0007). */
 export async function renameAccount(accountId: string, nickname: string | null) {
   if (DEMO_MODE) { lsSet(LS.nicknames, { ...(loadDemoNicknames() ?? {}), [accountId]: nickname }); return; }
   const { error } = await supabaseBrowser().from("accounts").update({ nickname }).eq("id", accountId);

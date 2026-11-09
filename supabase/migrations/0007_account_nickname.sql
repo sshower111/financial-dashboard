@@ -1,4 +1,4 @@
--- 0006: user-chosen account nickname. `name` comes from Plaid and is rewritten on every sync
+-- 0007: user-chosen account nickname. `name` comes from Plaid and is rewritten on every sync
 -- (Chase, for example, names every card "Ultimate Rewards®"), so a rename needs its own column.
 -- null = show the bank's name plus the last 4 digits.
 --

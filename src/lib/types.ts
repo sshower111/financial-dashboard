@@ -24,7 +24,7 @@ export interface Account {
   owner_label?: string | null;
   /** last 4 digits (migration 0005) */
   mask?: string | null;
-  /** user's own name for the account (migration 0006); shown instead of name + mask */
+  /** user's own name for the account (migration 0007); shown instead of name + mask */
   nickname?: string | null;
 }
 
