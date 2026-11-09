@@ -28,6 +28,17 @@ export function buildLedgerContext(l: Ledger, now = new Date()): string {
     let base: number | null = null; try { base = r2(convert(t.amount, t.iso_currency_code, l.fx)); } catch { /* */ }
     return [t.date, t.cleaned_merchant_name ?? t.raw_merchant_string, t.amount, t.iso_currency_code, base, t.category ?? "?", t.is_anomaly ? "ANOMALY" : ""].join("|");
   });
+  // whole history as monthly totals, so questions beyond the 45-day detail window still get answers
+  let oldest = today;
+  for (const t of l.transactions) if (t.date < oldest) oldest = t.date;
+  const monthly: { month: string; spend: number; income: number }[] = [];
+  for (let m = oldest.slice(0, 7); m <= today.slice(0, 7);) {
+    const [y, mo] = m.split("-").map(Number);
+    const next = mo === 12 ? `${y + 1}-01` : `${y}-${String(mo + 1).padStart(2, "0")}`;
+    const cf = cashFlow(l.transactions, l.fx, `${m}-01`, addDays(`${next}-01`, -1));
+    monthly.push({ month: m, spend: r2(cf.outflow), income: r2(cf.inflow) });
+    m = next;
+  }
   const dow = parseKey(today).getUTCDay();
   return JSON.stringify({
     today, weekday: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dow], baseCurrency: l.base,
@@ -39,7 +50,8 @@ export function buildLedgerContext(l: Ledger, now = new Date()): string {
     forecast30d: { start: r2(fc.start), end: r2(fc.end), min: r2(fc.min), minDate: fc.minDate, weather: fc.weather, dailyDiscretionaryBurn: r2(fc.dailyBurn), upcoming: fc.events.slice(0, 15).map((e) => ({ ...e, amount: r2(e.amount) })) },
     recurring: fc.streams.map((s) => ({ merchant: s.merchant, everyDays: s.cadenceDays, amount: r2(s.amount), ccy: s.currency, direction: s.direction, next: s.nextDate })),
     anomalies: detectAnomalies(l.transactions, { now }).map((a) => ({ kind: a.kind, title: a.title, detail: a.detail, date: a.date })),
-    recentTransactionsFormat: "date|merchant|amount(native,+=spent)|ccy|amount(base)|category|flag",
+    history: { oldestTransaction: oldest, transactionCount: l.transactions.length, monthlyTotalsBase: monthly, note: "recentTransactions lists only the last 45 days; older months are in monthlyTotalsBase" },
+    recentTransactionsFormat:"date|merchant|amount(native,+=spent)|ccy|amount(base)|category|flag",
     recentTransactions: recent,
   });
 }

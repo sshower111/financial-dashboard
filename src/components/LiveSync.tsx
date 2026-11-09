@@ -98,7 +98,7 @@ export function LiveSync() {
         // balances move with new transactions — refresh them shortly after a burst
         clearTimeout(refetch);
         refetch = setTimeout(async () => {
-          const d = await loadLedger(sb).catch(() => null);
+          const d = await loadLedger(sb, { withTransactions: false }).catch(() => null);
           const cur = useLedger.getState().data;
           if (d && cur) useLedger.setState({ data: { ...cur, accounts: d.accounts, holdings: d.holdings } });
         }, 3000);

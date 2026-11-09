@@ -14,13 +14,32 @@ export interface LedgerData {
 
 const num = (v: unknown) => (v == null ? null : Number(v));
 
-/** Load everything the dashboard needs. RLS scopes every query to the signed-in user. */
-export async function loadLedger(sb: SupabaseClient, days = 180): Promise<LedgerData> {
+const PAGE = 1000; // Supabase's API returns at most 1000 rows per request
+
+/** Every transaction since `since`, newest first, fetched in 1000-row pages. */
+async function loadTransactions(sb: SupabaseClient, since: string) {
+  const rows: Record<string, unknown>[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await sb.from("transactions").select("*").gte("date", since)
+      .order("date", { ascending: false }).order("created_at", { ascending: false }).order("id")
+      .range(from, from + PAGE - 1);
+    if (error) return { data: null, error };
+    rows.push(...(data ?? []));
+    if (!data || data.length < PAGE) return { data: rows, error: null };
+  }
+}
+
+/**
+ * Load everything the dashboard needs. RLS scopes every query to the signed-in user.
+ * Transactions: the full history Plaid gives (up to 2 years, `days_requested: 730` in link-token).
+ * `withTransactions: false` skips them (balance refreshes).
+ */
+export async function loadLedger(sb: SupabaseClient, { days = 760, withTransactions = true } = {}): Promise<LedgerData> {
   const since = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
   const [ins, acc, tx, hold, bud, fx, settings] = await Promise.all([
     sb.from("institutions").select("id,name,country,created_at,plaid_institution_id").order("created_at"),
     sb.from("accounts").select("*").eq("is_active", true),
-    sb.from("transactions").select("*").gte("date", since).order("date", { ascending: false }).order("created_at", { ascending: false }).limit(5000),
+    withTransactions ? loadTransactions(sb, since) : Promise.resolve({ data: [], error: null }),
     sb.from("investment_holdings").select("*"),
     sb.from("budgets").select("*"),
     sb.from("fx_rates").select("base,quote,rate"),
