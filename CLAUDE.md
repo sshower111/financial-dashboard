@@ -19,10 +19,10 @@ The owner works on **Windows PowerShell 5.1**: `&&` doesn't work there. Give com
 - `src/lib/finance/*`: pure, tested functions (fx, networth, cashflow, pacing, recurring, forecast, anomaly). The UI, the worker and the copilot context all share them. Change these with tests in `engine.test.ts`.
 - `src/lib/ai/*`: Ollama client (`/api/generate`, `think:false`, JSON-schema output), categorizer (LLM + regex fallback), copilot context builder.
 - `src/app/api/*`: plaid link-token / exchange / webhook (ES256 JWT verification), copilot (streaming), categorize (demo only), health.
-- `worker/index.ts`: queue = `webhook_logs` (processed=false, backoff by `attempts`). Run **one** instance only.
+- `worker/index.ts`: queue = `webhook_logs` (processed=false, backoff by `attempts`), claimed via the `claim_webhook_jobs` RPC (0006, `FOR UPDATE SKIP LOCKED` + `locked_until` lease). Until 0006 is applied it falls back to an unlocked select: run **one** instance only.
 - `src/components/LiveSync.tsx`: initial load, Realtime subscription (sets the JWT with `realtime.setAuth` **before** subscribing; otherwise RLS silently drops events), the demo simulator, and layout persistence.
 - `src/lib/demo.ts`: deterministic US demo ledger (seeded per calendar day). `engine.test.ts` asserts on its merchant names.
-- `supabase/migrations/`: 0001 init, 0002 USD defaults, 0003 `accounts.owner_label`, 0004 dashboards (applied to the live project), 0005 `accounts.mask` (confirm applied; see HANDOFF §4).
+- `supabase/migrations/`: 0001 init, 0002 USD defaults, 0003 `accounts.owner_label`, 0004 dashboards (applied to the live project), 0005 `accounts.mask` (confirm applied; see HANDOFF §4), 0006 job-claim RPC (not applied yet).
 - **Dashboards** (`src/lib/finance/scope.ts`, `DashboardTabs.tsx`): separate dashboards (Personal / Business / user-added), no combined view. Stable id in `accounts.owner_label`, `budgets.dashboard`, `dashboard_layouts.dashboard`; names in `user_settings.dashboards` (rename = settings only). `useScopedData()` in `src/store/derived.ts` is the only filter: panels never read `s.data` for accounts/transactions; `/api/copilot` applies the same `scopeLedger`. Linking puts new accounts on the open dashboard; accounts the worker discovers later go where that bank's other accounts are (else `guessDashboard()`).
 - **Re-link dedupe** (`src/lib/link-dedupe.ts`): a new Plaid item for a bank already linked only stores accounts that don't match existing ones (type + subtype + mask, name fallback); if none are new the item is removed at Plaid (409). The worker applies the same check before inserting accounts. `/api/plaid/remove` unlinks a bank (Plaid item/remove + cascade delete); UI under Edit layout → Accounts → Linked banks.
 
@@ -49,7 +49,7 @@ The owner works on **Windows PowerShell 5.1**: `&&` doesn't work there. Give com
 1. Disable "Allow new users to sign up" in Supabase Auth before exposing the app over ngrok (confirm with the owner whether it's done).
 2. Not yet checked against real data: the live sync-progress indicator, the cached/batched categorization path, and the duplicate flag + Remove after b2be63f (see HANDOFF §6).
 3. Open question: a "session" label the owner saw in Live activity is not in the code; probably a raw bank string or AI subcategory.
-4. Roadmap: Plaid Link update mode (`ITEM_LOGIN_REQUIRED`), encrypting access tokens (Supabase Vault), safe concurrent workers (`FOR UPDATE SKIP LOCKED` via an RPC), CSV import for brokers Plaid doesn't cover.
+4. Roadmap: Plaid Link update mode (`ITEM_LOGIN_REQUIRED`), encrypting access tokens (Supabase Vault), apply 0006 for safe concurrent workers, CSV import for brokers Plaid doesn't cover.
 5. Categorization: merchant cache first (in-memory, built from categorized rows, keyed by `merchantKey()` in `src/lib/ai/merchant.ts`), then up to `CATEGORIZE_BATCH`=50 deduped merchants per call to `OLLAMA_CATEGORIZE_MODEL` (default `qwen2.5:1.5b`, falls back to `OLLAMA_MODEL`). Failing batches split in half; a merchant failing 3 times gets the regex rules.
 
 ## Regenerating README media
