@@ -19,7 +19,7 @@ const { supabaseAdmin } = await import("../src/lib/supabase/admin.ts");
 const { plaid, ACCOUNT_TYPES, SUPPORTED_CCY } = await import("../src/lib/plaid.ts");
 const { matchExisting } = await import("../src/lib/link-dedupe.ts");
 const { guessDashboard } = await import("../src/lib/finance/scope.ts");
-const { categorizeWithLLM, categorizeWithRules, forcedLabel, impossibleCategory, plaidLabel, plausibleMerchant } = await import("../src/lib/ai/categorize.ts");
+const { categorizeWithLLM, categorizeWithRules, forcedLabel, impossibleCategory, plaidLabel, plausibleMerchant, reconcile } = await import("../src/lib/ai/categorize.ts");
 const { cacheKey } = await import("../src/lib/ai/merchant.ts");
 const { hasModel, ollamaModels, OLLAMA_CATEGORIZE_MODEL, OLLAMA_MODEL, OLLAMA_URL } = await import("../src/lib/ai/ollama.ts");
 const { detectAnomalies } = await import("../src/lib/finance/anomaly.ts");
@@ -292,7 +292,9 @@ async function buildCache() {
       const conf = r.ai_confidence_score == null ? 1 : Number(r.ai_confidence_score);
       // never propagate a label that is impossible (Income on spend) or belongs to another merchant
       if (!k || cache.has(k) || conf < MIN_CACHE_CONFIDENCE || impossibleCategory(r.category, Number(r.amount))
-        || (r.cleaned_merchant_name && !plausibleMerchant(r.cleaned_merchant_name, r.raw_merchant_string))) continue;
+        || (r.cleaned_merchant_name && !plausibleMerchant(r.cleaned_merchant_name, r.raw_merchant_string))
+        // the model gave up and echoed the bank text: don't spread that
+        || (r.cleaned_merchant_name ?? "").trim().toLowerCase() === r.raw_merchant_string.trim().toLowerCase()) continue;
       cache.set(k, { cleaned_merchant_name: r.cleaned_merchant_name ?? r.raw_merchant_string, category: r.category, subcategory: r.subcategory, ai_confidence_score: conf, ai_tags: cleanTags(r.ai_tags) });
     }
     if ((data ?? []).length < 1000) break;
@@ -315,6 +317,11 @@ async function writeLabels(rows: { row: Queued; labels: Labels }[]) {
       await db.from("transactions").update(labels).in("id", ids.slice(i, i + 200)).is("category", null).throwOnError();
 }
 
+/** A remembered label still has to agree with Plaid for this row (same rule as fresh model answers). */
+const checked = (c: Labels, row: Queued): Labels => {
+  const r = reconcile({ id: row.id, merchant: c.cleaned_merchant_name, category: c.category as CategorizeResult["category"], subcategory: c.subcategory ?? "", confidence: c.ai_confidence_score, tags: c.ai_tags, source: "llm" }, toInput(row));
+  return r.category === c.category ? c : { ...c, category: r.category, subcategory: r.subcategory };
+};
 const toLabels = (r: CategorizeResult): Labels => ({ cleaned_merchant_name: r.merchant, category: r.category, subcategory: r.subcategory, ai_confidence_score: Math.round(r.confidence * 100) / 100, ai_tags: r.tags });
 const toInput = (t: Queued): CategorizeInput => ({ id: t.id, raw: t.raw_merchant_string, amount: Number(t.amount), currency: t.iso_currency_code, merchantHint: t.cleaned_merchant_name, plaid: t.plaid_category, plaidConfidence: t.plaid_category_confidence });
 const describe = (e: unknown) => e instanceof Error ? (e.name === "TimeoutError" ? `timed out after ${Math.round(LLM_TIMEOUT / 1000)}s` : e.message) : String(e);
@@ -381,7 +388,7 @@ async function categorize(): Promise<boolean> {
   for (const r of queued) {
     const f = forcedLabel(toInput(r)) ?? plaidLabel(toInput(r));
     if (f) { hits.push({ row: r, labels: toLabels(f) }); continue; }
-    const c = cache.get(keyOf(r)); if (c) hits.push({ row: r, labels: c }); else misses.push(r);
+    const c = cache.get(keyOf(r)); if (c) hits.push({ row: r, labels: checked(c, r) }); else misses.push(r);
   }
   if (hits.length) {
     await writeLabels(hits);
@@ -424,7 +431,7 @@ async function categorize(): Promise<boolean> {
     if (r.source === "rules") viaRules++;
     const labels = toLabels(r), k = keyOf(rep);
     for (const row of groups.get(gk(rep))!) updates.push({ row, labels });
-    if (k && r.source === "llm" && r.confidence >= MIN_CACHE_CONFIDENCE) cache.set(k, labels);
+    if (k && r.source === "llm" && r.confidence >= MIN_CACHE_CONFIDENCE && r.merchant.trim().toLowerCase() !== rep.raw_merchant_string.trim().toLowerCase()) cache.set(k, labels);
   }
   await writeLabels(updates);
   const secs = (Date.now() - t1) / 1000;

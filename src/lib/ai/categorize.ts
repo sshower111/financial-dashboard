@@ -89,7 +89,7 @@ export function plaidLabel(i: CategorizeInput): CategorizeResult | null {
 }
 
 /** Plaid overrides the model where the model is known to drift: Plaid confident, or the model said "Transfer" for a purchase Plaid files elsewhere. */
-function reconcile(r: CategorizeResult, i: CategorizeInput): CategorizeResult {
+export function reconcile(r: CategorizeResult, i: CategorizeInput): CategorizeResult {
   const p = plaidCategory(i);
   if (!p) return r;
   const plaidSure = HIGH.has(String(i.plaidConfidence).toUpperCase());
