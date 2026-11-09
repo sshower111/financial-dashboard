@@ -1,6 +1,7 @@
 import { isTransfer } from "./transfers.ts";
 import type { Transaction } from "../types.ts";
 import { daysBetween, median, parseKey, stepCadence } from "./dates.ts";
+import { merchantKey as rawKey } from "../ai/merchant.ts";
 
 export interface RecurringStream {
   key: string;
@@ -18,14 +19,22 @@ export interface RecurringStream {
   occurrences: Transaction[];
 }
 
+const norm = (s: string) => s
+  .toLowerCase()
+  .replace(/[#*]\s*\d+/g, "")
+  .replace(/\d{4,}/g, "")
+  .replace(/[^a-z& ]+/g, " ")
+  .replace(/\s+/g, " ")
+  .trim();
+
+/**
+ * Grouping key for "same merchant". Built from the bank's own text (stable across every charge),
+ * not the AI-cleaned name, which can vary per row ("Long View Syste" / blank, "Costco" / "Costco
+ * Wholesale") and split one paycheque stream into groups too small to detect. The cleaned name is
+ * only the fallback when the bank text has nothing stable left (all digits / reference codes).
+ */
 export const merchantKey = (t: Pick<Transaction, "cleaned_merchant_name" | "raw_merchant_string">) =>
-  (t.cleaned_merchant_name || t.raw_merchant_string)
-    .toLowerCase()
-    .replace(/[#*]\s*\d+/g, "")
-    .replace(/\d{4,}/g, "")
-    .replace(/[^a-z& ]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  rawKey(t.raw_merchant_string) || norm(t.cleaned_merchant_name || t.raw_merchant_string);
 
 const CADENCES = [7, 14, 15, 30, 91, 365];
 

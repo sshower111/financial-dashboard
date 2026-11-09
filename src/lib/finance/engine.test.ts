@@ -239,3 +239,16 @@ test("assistant question matching: rideshare means Uber / Lyft, not Uber Eats, s
   // no topic phrase: question words that name a merchant
   assert.equal(questionMatches("costco spending", txns, fx)!.monthly[0].spent, 100);
 });
+
+test("recurring groups by the bank's text, so a paycheque whose AI name varies is one stream", () => {
+  const pay = (i: number, name: string | null): Transaction => {
+    const d = new Date(Date.UTC(2026, 6, 16) + i * 14 * 86_400_000).toISOString().slice(0, 10);
+    return { id: `p${i}`, account_id: "a", amount: -1411.06, iso_currency_code: "CAD", date: d, raw_merchant_string: "Long View Syste - Direct deposit",
+      cleaned_merchant_name: name, category: "Income", subcategory: null, ai_confidence_score: 0.9, ai_tags: [], is_anomaly: false, is_pending: false, created_at: d };
+  };
+  const list = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => pay(i, i % 3 ? "Long View Syste" : i % 2 ? null : "Long View Systems"));
+  const s = detectRecurring(list, "2026-11-04");
+  assert.equal(s.length, 1);
+  assert.equal(s[0].cadenceDays, 14);
+  assert.equal(s[0].direction, "in");
+});
