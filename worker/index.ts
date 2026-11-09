@@ -258,7 +258,7 @@ async function processJobs() {
 // 3. repeated failures (Ollama down, model missing) back off exponentially; cache hits keep flowing.
 // 20, not 50: with 50 the 1.5B model copied answers onto the wrong items (see plausibleMerchant)
 const BATCH = Math.max(1, Number(process.env.CATEGORIZE_BATCH ?? 20));
-const FETCH = 1000;                       // queued rows examined per pass (cache hits are cheap)
+const FETCH = 1000;                       // page size when reading the queue
 const LLM_TIMEOUT = Number(process.env.OLLAMA_TIMEOUT_MS ?? 600_000);
 const CACHE_TTL = 15 * 60_000;
 const MIN_CACHE_CONFIDENCE = 0.6;         // don't propagate low-confidence guesses
@@ -362,10 +362,16 @@ async function llmWithSplit(items: Queued[], model: string): Promise<Map<string,
 /** One categorization pass. Returns true if it made progress and more work may remain. */
 async function categorize(): Promise<boolean> {
   if (Date.now() - cacheBuiltAt > CACHE_TTL) await buildCache();
-  const { data, error } = await db.from("transactions").select("id,user_id,raw_merchant_string,cleaned_merchant_name,amount,iso_currency_code,plaid_category,plaid_category_confidence")
-    .is("category", null).order("created_at").limit(FETCH);
-  if (error) throw error;
-  const queued = (data ?? []) as Queued[];
+  // read the whole queue (in pages), not just the oldest FETCH rows: otherwise rows the model still
+  // has to do pile up at the front and hide rows that rules / Plaid / the cache could label instantly
+  const queued: Queued[] = [];
+  for (let from = 0; from < 50_000; from += FETCH) {
+    const { data, error } = await db.from("transactions").select("id,user_id,raw_merchant_string,cleaned_merchant_name,amount,iso_currency_code,plaid_category,plaid_category_confidence")
+      .is("category", null).order("created_at").order("id").range(from, from + FETCH - 1);
+    if (error) throw error;
+    queued.push(...((data ?? []) as Queued[]));
+    if ((data ?? []).length < FETCH) break;
+  }
   if (!queued.length) return false;
 
   // 1. bank wording that decides the label on its own (e-Transfers, direct deposits), then Plaid's
