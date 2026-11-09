@@ -39,7 +39,7 @@ npm start
 npm run worker
 ```
 
-Run only **one** worker at a time until migration 0006 is applied. With 0006 the worker claims jobs with `FOR UPDATE SKIP LOCKED`, so several can run; without it the worker logs a warning and uses the old unlocked query.
+Migration 0006 is applied (2026-11-09). With it the worker claims jobs with `FOR UPDATE SKIP LOCKED`, so several can run; without it the worker logs a warning and uses the old unlocked query.
 
 Ollama must be running with two models (both pulled once):
 
@@ -79,8 +79,9 @@ Supabase project `financial-dashboard` (free plan; it pauses after about a week 
 | 0001 init, 0002 USD defaults | Schema, RLS, column grants | Applied |
 | 0003 `accounts.owner_label` | Which dashboard an account is on | Applied |
 | 0004 dashboards | Dashboard names; per-dashboard budgets and layouts | Applied |
-| 0005 `accounts.mask` | Last 4 digits, for re-link detection | **Confirm it's applied** (query below) |
-| 0006 `claim_webhook_jobs` | `webhook_logs.locked_until` + RPC for safe concurrent workers (service role only) | **Not applied yet**: paste the file into the SQL editor |
+| 0005 `accounts.mask` | Last 4 digits, for re-link detection | Applied |
+| 0006 `claim_webhook_jobs` | `webhook_logs.locked_until` + RPC for safe concurrent workers (service role only) | Applied 2026-11-09 |
+| 0007 `accounts.nickname` | User-chosen account name (rename under Edit layout → Accounts) | Applied 2026-11-09 (Supabase history name `0006_account_nickname`) |
 
 ```sql
 select column_name from information_schema.columns
@@ -88,7 +89,7 @@ where table_schema = 'public' and table_name = 'accounts' and column_name in ('o
 -- expect 2 rows
 
 select proname from pg_proc where proname = 'claim_webhook_jobs';
--- expect 1 row once 0006 is applied
+-- expect 1 row
 ```
 
 Security model, which every change must keep: RLS on every table. Clients can't read `institutions.access_token`, and they can't insert bank-sourced rows. Clients may update only `accounts.(is_active, name, owner_label)` and the transaction category fields. Plaid data is written only by the service role (the worker and API routes).
@@ -118,7 +119,7 @@ Security model, which every change must keep: RLS on every table. Clients can't 
 - The new worker categorization path (cache and batches) on the real queue. Watch the worker log on first run.
 - The duplicate flag and Remove after the latest fix (b2be63f).
 - Detecting a re-link of a bank whose accounts don't have last-4 digits yet (filled on that bank's next worker sync).
-- The 0006 job claiming (typechecked only; not run against the database). After applying 0006, the worker should process jobs without logging "migration 0006 not applied".
+- The 0006 job claiming (applied 2026-11-09; the RPC was called once as service_role on an empty queue, nothing else run yet). After applying 0006, the worker should process jobs without logging "migration 0006 not applied".
 
 ## 7. Open items
 
@@ -126,7 +127,7 @@ Security model, which every change must keep: RLS on every table. Clients can't 
 2. Confirm migration 0005 is applied (query above).
 3. Plaid Link **update mode** for `ITEM_LOGIN_REQUIRED` isn't built. A bank that needs re-login currently has to be removed and linked again.
 4. Encrypt Plaid access tokens at rest (Supabase Vault).
-5. ~~Make the worker safe to run as multiple instances.~~ Code done (5785497); apply migration 0006 to enable it.
+5. ~~Make the worker safe to run as multiple instances.~~ Done (5785497, 0006 applied 2026-11-09).
 6. CSV import for brokers Plaid doesn't cover.
 7. Open question from the owner: a "session" label seen in Live activity. It isn't in the code, so it probably comes from a bank's raw description or an AI subcategory. Find the row and check `raw_merchant_string` / `subcategory`.
 8. `AGENTS.md` (untracked) is a Codex copy of these notes plus a block Next.js appended. `agentRules: false` is now set in `next.config.ts` (75854e7), so Next stops rewriting it. Owner to decide: delete it, or remove the Next block and commit it.
