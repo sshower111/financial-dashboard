@@ -41,11 +41,9 @@ export async function generate(o: GenerateOptions): Promise<string> {
   return json.response;
 }
 
-/** Yields response tokens as Ollama streams NDJSON chunks. */
-export async function* generateStream(o: GenerateOptions): AsyncGenerator<string> {
-  const res = await fetch(`${OLLAMA_URL}/api/generate`, { method: "POST", headers: { "content-type": "application/json" }, body: body(o, true), signal: o.signal });
-  if (!res.ok || !res.body) throw new Error(`Ollama ${res.status}: ${res.body ? await res.text() : "no body"}`);
-  const reader = res.body.getReader();
+/** Parsed lines of an Ollama NDJSON stream; a line carrying `error` throws. */
+async function* ndjson<T extends { error?: string }>(res: Response): AsyncGenerator<T> {
+  const reader = res.body!.getReader();
   const dec = new TextDecoder();
   let buf = "";
   for (;;) {
@@ -57,11 +55,62 @@ export async function* generateStream(o: GenerateOptions): AsyncGenerator<string
       const line = buf.slice(0, nl).trim();
       buf = buf.slice(nl + 1);
       if (!line) continue;
-      const chunk = JSON.parse(line) as { response?: string; done?: boolean; error?: string };
+      const chunk = JSON.parse(line) as T;
       if (chunk.error) throw new Error(chunk.error);
-      if (chunk.response) yield chunk.response;
-      if (chunk.done) return;
+      yield chunk;
     }
+  }
+}
+
+/** Yields response tokens as Ollama streams NDJSON chunks. */
+export async function* generateStream(o: GenerateOptions): AsyncGenerator<string> {
+  const res = await fetch(`${OLLAMA_URL}/api/generate`, { method: "POST", headers: { "content-type": "application/json" }, body: body(o, true), signal: o.signal });
+  if (!res.ok || !res.body) throw new Error(`Ollama ${res.status}: ${res.body ? await res.text() : "no body"}`);
+  for await (const chunk of ndjson<{ response?: string; done?: boolean; error?: string }>(res)) {
+    if (chunk.response) yield chunk.response;
+    if (chunk.done) return;
+  }
+}
+
+export interface ChatToolCall { function: { name: string; arguments: unknown } }
+export interface ChatMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+  /** assistant turns that request tools */
+  tool_calls?: ChatToolCall[];
+  /** tool turns: which tool this result belongs to */
+  tool_name?: string;
+}
+export interface ChatOptions {
+  messages: ChatMessage[];
+  /** OpenAI-style function schemas; omit to forbid tool calls for this turn */
+  tools?: unknown[];
+  temperature?: number;
+  signal?: AbortSignal;
+  model?: string;
+}
+export interface ChatChunk { content?: string; tool_calls?: ChatToolCall[] }
+
+/**
+ * Streams one `/api/chat` turn: text deltas and, when the model decides to call tools, its
+ * `message.tool_calls`. A model without tool support makes Ollama answer 400, which throws here.
+ */
+export async function* chatStream(o: ChatOptions): AsyncGenerator<ChatChunk> {
+  const model = o.model ?? OLLAMA_MODEL;
+  const res = await fetch(`${OLLAMA_URL}/api/chat`, {
+    method: "POST", headers: { "content-type": "application/json" }, signal: o.signal,
+    body: JSON.stringify({
+      model, messages: o.messages, ...(o.tools?.length ? { tools: o.tools } : {}), stream: true,
+      ...(THINKS.test(model) ? { think: false } : {}),
+      keep_alive: "10m",
+      options: { temperature: o.temperature ?? 0.2, num_ctx: 16384 },
+    }),
+  });
+  if (!res.ok || !res.body) throw new Error(`Ollama ${res.status}: ${res.body ? await res.text() : "no body"}`);
+  for await (const chunk of ndjson<{ message?: { content?: string; tool_calls?: ChatToolCall[] }; done?: boolean; error?: string }>(res)) {
+    const m = chunk.message;
+    if (m?.content || m?.tool_calls?.length) yield { content: m.content || undefined, tool_calls: m.tool_calls?.length ? m.tool_calls : undefined };
+    if (chunk.done) return;
   }
 }
 
