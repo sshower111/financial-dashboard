@@ -11,7 +11,7 @@
     "live": "node scripts/live.mjs",
     "live:prod": "node scripts/live.mjs --prod",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/lib/finance/engine.test.ts"
+    "test": "tsx --test src/lib/finance/engine.test.ts src/lib/ai/agent.test.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

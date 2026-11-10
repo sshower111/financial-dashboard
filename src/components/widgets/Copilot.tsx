@@ -2,8 +2,10 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp, Square } from "lucide-react";
 import { useLedger } from "@/store/ledger";
+import { parseWire, toolLabel } from "@/lib/ai/wire";
 
-interface Msg { role: "user" | "assistant"; content: string }
+/** `tools`: which finance tools the model called for this answer (shown as a "used:" trace) */
+interface Msg { role: "user" | "assistant"; content: string; tools?: string[] }
 const SUGGESTIONS = ["Why was my burn rate higher this week?", "What subscriptions went up?", "Can I afford a $1,200 trip this month?", "Where is most of my dining money going?"];
 
 export function Copilot() {
@@ -30,7 +32,7 @@ export function Copilot() {
     stick.current = true; // a new question always jumps to the answer
     abort.current = new AbortController();
     try {
-      const res = await fetch("/api/copilot", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: next, base, dashboard }), signal: abort.current.signal });
+      const res = await fetch("/api/copilot", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: next.map(({ role, content }) => ({ role, content })), base, dashboard }), signal: abort.current.signal });
       if (!res.body) throw new Error(await res.text());
       const reader = res.body.getReader(), dec = new TextDecoder();
       let acc = "";
@@ -38,7 +40,8 @@ export function Copilot() {
         const { value, done } = await reader.read();
         if (done) break;
         acc += dec.decode(value, { stream: true });
-        setMsgs([...next, { role: "assistant", content: acc }]);
+        const { text, tools } = parseWire(acc);
+        setMsgs([...next, { role: "assistant", content: text, tools }]);
       }
     } catch (e) {
       if ((e as Error).name !== "AbortError") setMsgs([...next, { role: "assistant", content: `[${(e as Error).message}]` }]);
@@ -63,7 +66,7 @@ export function Copilot() {
           <div className="flex flex-col gap-4">
             {msgs.map((m, i) => (
               <div key={i} className={m.role === "user" ? "self-end max-w-[85%] border border-line bg-sunk px-3 py-2" : "max-w-full"}>
-                {m.role === "assistant" && <div className="label mb-1">Assistant</div>}
+                {m.role === "assistant" && <div className="label mb-1">Assistant{!!m.tools?.length && <span className="num"> · used: {m.tools.map(toolLabel).join(", ")}</span>}</div>}
                 <div className="text-[13px] leading-relaxed whitespace-pre-wrap">
                   {m.content || <span className="num text-muted">thinking…</span>}
                   {busy && i === msgs.length - 1 && m.content && <span className="ml-0.5 inline-block h-3 w-1.5 translate-y-0.5 bg-accent" />}

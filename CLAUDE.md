@@ -10,7 +10,7 @@ npm run worker     # background worker: Plaid sync, LLM categorization, anomaly 
 npm run live       # owner's one-window setup: next dev + worker + ngrok (scripts/live.mjs); Ctrl+C stops all
 npm run live:prod  # same with next build + next start. Port LIVE_PORT (default 3001); ngrok domain from
                    # NGROK_DOMAIN or the PLAID_REDIRECT_URI host in .env.local (NGROK_DOMAIN=off skips ngrok)
-npm test           # finance engine unit tests (node:test via tsx)
+npm test           # finance engine + copilot tool-calling unit tests (node:test via tsx)
 npm run typecheck
 npm run build
 ```
@@ -20,8 +20,9 @@ The owner works on **Windows PowerShell 5.1**: `&&` doesn't work there. Give com
 ## Layout
 
 - `src/lib/finance/*`: pure, tested functions (fx, networth, cashflow, pacing, recurring, forecast, anomaly). The UI, the worker and the copilot context all share them. Change these with tests in `engine.test.ts`.
-- `src/lib/ai/*`: Ollama client (`/api/generate`, `think:false`, JSON-schema output), categorizer (LLM + regex fallback), copilot context builder.
-- `src/app/api/*`: plaid link-token / exchange / webhook (ES256 JWT verification), copilot (streaming), categorize (demo only), health.
+- `src/lib/ai/*`: Ollama client (`/api/generate` + `/api/chat` with `tools`, `think:false`, JSON-schema output), categorizer (LLM + regex fallback), copilot context builder (snapshot fallback).
+- **Copilot tool calling** (`src/lib/ai/tools.ts`, `agent.ts`, `wire.ts`; tests in `agent.test.ts`): `/api/copilot` runs `answerStream` → `runAgent`, a loop over `/api/chat` with 7 read-only tools (thin wrappers over `src/lib/finance/*`; add finance math there, not in a tool). `validateArgs` checks model arguments; `executeTool` never throws (structured `{ok:false,error}` back to the model). Max 4 tool rounds, 6 calls per round, then a forced answer without tools. Tools only get the in-memory `Ledger` the route loaded (user's RLS session, open dashboard): keep it that way, no DB client or service role in tools. Any failure falls back to the snapshot prompt (`buildLedgerContext`); `COPILOT_TOOLS=off` forces it. The response is still plain text plus `\x1e…\n` control lines for the tool trace; `Copilot.tsx` reads it with `parseWire`. The model call is injected (`ChatFn`), so tests use a fake model.
+- `src/app/api/*`: plaid link-token / exchange / webhook (ES256 JWT verification), copilot (streaming, tool calling), categorize (demo only), health.
 - `worker/index.ts`: queue = `webhook_logs` (processed=false, backoff by `attempts`), claimed via the `claim_webhook_jobs` RPC (0006, `FOR UPDATE SKIP LOCKED` + `locked_until` lease). 0006 is applied (2026-11-09), so several workers can run; if the RPC is missing it falls back to an unlocked select (one instance only).
 - `src/components/LiveSync.tsx`: initial load, Realtime subscription (sets the JWT with `realtime.setAuth` **before** subscribing; otherwise RLS silently drops events), the demo simulator, and layout persistence.
 - `src/lib/demo.ts`: deterministic US demo ledger (seeded per calendar day). `engine.test.ts` asserts on its merchant names.
@@ -54,6 +55,7 @@ The owner works on **Windows PowerShell 5.1**: `&&` doesn't work there. Give com
 3. Open question: a "session" label the owner saw in Live activity is not in the code; probably a raw bank string or AI subcategory.
 4. Roadmap: Plaid Link update mode (`ITEM_LOGIN_REQUIRED`), encrypting access tokens (Supabase Vault), CSV import for brokers Plaid doesn't cover.
 5. Categorization order (worker): fixed rules first (`forcedLabel`: Interac e-Transfer / Zelle = payment to / from a person, never Transfer; money in marked "Direct deposit" = Income), then Plaid's category when Plaid is HIGH/VERY_HIGH and named the merchant (`plaidLabel`), then the merchant cache, then up to `CATEGORIZE_BATCH`=20 merchants per call to `OLLAMA_CATEGORIZE_MODEL` (default now `OLLAMA_MODEL`; qwen2.5:1.5b filed restaurants as Transfer). Plaid overrides the model when Plaid is confident or the model says Transfer for a purchase. Recurring groups by the bank text (`merchantKey` in recurring.ts), not the AI name.
+6. Tool-calling copilot not yet run against a live Ollama model; verify locally (ask a forecast, a budget and a merchant question; the answer should show "used: …"). So far only verified with unit tests (fake model) and a one-off smoke test of the built route against a mock Ollama HTTP server (not in the repo). If the model picks tools badly, tune tool descriptions / `AGENT_SYSTEM` in `agent.ts`, or set `COPILOT_TOOLS=off`.
 
 ## Regenerating README media
 
