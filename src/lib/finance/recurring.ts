@@ -53,7 +53,13 @@ export function detectRecurring(txns: Transaction[], today: string): RecurringSt
   for (const [key, all] of groups) {
     // a fixed amount on a schedule (CAD 750 every 14 days) also counts when one-off payments to the
     // same place sit in between: retry with only the most common exact amount
-    const s = evaluate(key, all, today) ?? evaluate(key, modalAmount(all), today);
+    let s = evaluate(key, all, today);
+    if (!s) {
+      const fixed = modalAmount(all), found = evaluate(key, fixed, today);
+      // then follow the schedule past the last fixed payment: a raised contribution (750 → 1000)
+      // lands on the same dates and continues the stream with the new amount
+      if (found) s = evaluate(key, follow(fixed, all, found.cadenceDays), today, true) ?? found;
+    }
     if (s) out.push(s);
   }
   return out.sort((a, b) => (a.nextDate < b.nextDate ? -1 : 1));
@@ -67,7 +73,7 @@ function modalAmount(list: Transaction[]): Transaction[] {
   return best.length >= 4 && best.length < list.length ? best : [];
 }
 
-function evaluate(key: string, input: Transaction[], today: string): RecurringStream | null {
+function evaluate(key: string, input: Transaction[], today: string, followed = false): RecurringStream | null {
   if (input.length < 3) return null;
   const list = [...input].sort((a, b) => (a.date < b.date ? -1 : 1));
   const gaps = list.slice(1).map((t, i) => daysBetween(list[i].date, t.date)).filter((g) => g > 0);
@@ -86,8 +92,13 @@ function evaluate(key: string, input: Transaction[], today: string): RecurringSt
   const short = cadence <= 15;
   if (short && list.length < 4) return null;
   const tol = short ? 0.15 : 0.35, need = short ? 0.8 : 0.6;
-  if (amounts.filter((a) => Math.abs(a - typical) <= typical * tol).length / amounts.length < need) return null;
-  const last = list[list.length - 1];
+  const last = list[list.length - 1], latest = Math.abs(last.amount);
+  // near the typical amount, or near the latest one: a raise / price change is one step, not noise
+  // (the latest amount only counts once it has repeated, so a single one-off can't pose as a raise)
+  const atLatest = (a: number) => Math.abs(a - latest) <= latest * tol;
+  const stepped = amounts.filter(atLatest).length >= 2;
+  const near = (a: number) => Math.abs(a - typical) <= typical * tol || (stepped && atLatest(a));
+  if (amounts.filter(near).length / amounts.length < need) return null;
   // stale streams (cancelled subscription, old employer) are dropped
   if (daysBetween(last.date, today) > cadence * 1.6 + 3) return null;
   const anchorDay = median(list.slice(-3).map((t) => parseKey(t.date).getUTCDate()));
@@ -96,8 +107,28 @@ function evaluate(key: string, input: Transaction[], today: string): RecurringSt
   return {
     key, merchant: last.cleaned_merchant_name || last.raw_merchant_string,
     direction: last.amount < 0 ? "in" : "out", cadenceDays: cadence,
-    amount: typical, lastAmount: Math.abs(last.amount), currency: last.iso_currency_code,
+    // after a confirmed step change (repeated, or continuing the schedule) expect the latest amount
+    amount: (stepped || followed) && Math.abs(latest - typical) > typical * tol ? latest : typical, lastAmount: Math.abs(last.amount), currency: last.iso_currency_code,
     lastDate: last.date, nextDate: next, anchorDay, occurrences: list,
     ...(isTransfer(last) ? { transfer: true } : {}),
   };
+}
+
+/** Extend a stream with the payments that keep landing on its schedule after its last one, whatever their amount. */
+function follow(stream: Transaction[], all: Transaction[], cadence: number): Transaction[] {
+  const chain = [...stream].sort((a, b) => (a.date < b.date ? -1 : 1));
+  const used = new Set(chain.map((t) => t.id));
+  const rest = all.filter((t) => !used.has(t.id)).sort((a, b) => (a.date < b.date ? -1 : 1));
+  for (;;) {
+    const lastDate = chain[chain.length - 1].date;
+    // closest to the expected date; on a tie, the amount closest to the last payment
+    const prev = Math.abs(chain[chain.length - 1].amount);
+    const off = (t: Transaction) => Math.abs(daysBetween(lastDate, t.date) - cadence);
+    // a raise or cut, not a one-off: within half to double the previous amount
+    const plausible = (t: Transaction) => Math.abs(t.amount) >= prev / 2 && Math.abs(t.amount) <= prev * 2;
+    const next = rest.filter((t) => !used.has(t.id) && t.date > lastDate && off(t) <= 3 && plausible(t))
+      .sort((a, b) => off(a) - off(b) || Math.abs(Math.abs(a.amount) - prev) - Math.abs(Math.abs(b.amount) - prev))[0];
+    if (!next) return chain;
+    chain.push(next); used.add(next.id);
+  }
 }

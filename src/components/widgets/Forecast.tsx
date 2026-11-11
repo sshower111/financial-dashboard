@@ -13,7 +13,8 @@ export function Forecast() {
   const pad = Math.max(1, (hi - f.min) * 0.15);
   const domain: [number, number] = [f.min < 0 ? f.min - pad : Math.max(0, f.min - pad), hi + pad];
   return (
-    <div className="grid h-full grid-cols-1 @2xl:grid-cols-[1fr_240px]">
+    // side by side, only the Scheduled list scrolls; the chart stays put
+    <div className="grid h-full grid-cols-1 @2xl:grid-cols-[1fr_240px] @2xl:grid-rows-[minmax(0,1fr)]">
       <div className="min-h-40 p-3 pb-1">
         <div className="mb-1 flex gap-5 text-[12px]">
           <span><span className="label mr-1.5">Today</span><Money value={f.start} /></span>
@@ -37,8 +38,8 @@ export function Forecast() {
           </AreaChart>
         </ResponsiveContainer>
       </div>
-      <div className="border-t border-line @2xl:border-t-0 @2xl:border-l">
-        <div className="label border-b border-line px-3 py-2">Scheduled</div>
+      <div className="scroll-thin border-t border-line @2xl:min-h-0 @2xl:overflow-y-auto @2xl:border-t-0 @2xl:border-l">
+        <div className="label sticky top-0 border-b border-line bg-bg px-3 py-2">Scheduled</div>
         <table className="tbl tbl-fixed text-[12px]">
           <tbody>
             {upcoming.map((e, i) => (

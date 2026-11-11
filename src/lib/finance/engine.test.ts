@@ -325,3 +325,14 @@ test("each dashboard has its own currency: picked, else what most of its bank / 
   assert.equal(dashboardCurrency(list, accounts, "us"), "USD", "ties go to USD");
   assert.equal(dashboardCurrency([{ id: "ca", name: "CA", currency: "USD" }], accounts, "ca"), "USD", "the user's pick wins");
 });
+
+test("recurring follows a raised contribution on the same schedule (750 → 1000)", () => {
+  const t = (i: number, date: string, amount: number): Transaction => ({
+    id: `r${i}`, account_id: "a", amount, iso_currency_code: "CAD", date, raw_merchant_string: "IBKR - Bill payment", cleaned_merchant_name: "Ibkr",
+    category: "Transfer", subcategory: "Loan payment", ai_confidence_score: 1, ai_tags: [], is_anomaly: false, is_pending: false, created_at: date, plaid_category: "LOAN_PAYMENTS_OTHER_PAYMENT",
+  });
+  const dates = ["2026-07-11", "2026-07-25", "2026-08-08", "2026-08-22", "2026-09-05", "2026-09-19", "2026-10-03", "2026-10-17"];
+  const list = [...dates.map((d, i) => t(i, d, 750)), t(20, "2026-10-19", 5000), t(21, "2026-10-30", 2000), t(22, "2026-10-31", 1000)];
+  const [s] = detectRecurring(list, "2026-11-11");
+  assert.deepEqual([s.cadenceDays, s.amount, s.lastAmount, s.lastDate, s.nextDate], [14, 1000, 1000, "2026-10-31", "2026-11-14"]);
+});
