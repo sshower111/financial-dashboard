@@ -146,8 +146,10 @@ export function Accounts() {
   const inst = new Map(data.institutions.map((i) => [i.id, i]));
   return (
     <>
-    <table className="tbl tbl-fixed">
-      <thead><tr><th>Account</th><th className="hidden w-[28%] @xl:table-cell">Institution</th><th className="r hidden w-32 @md:table-cell">Native</th><th className="r w-28">{d.base}</th></tr></thead>
+    {/* auto layout with a greedy first column: the account name takes every pixel the other columns
+        don't need, so the table always fills the panel (a fixed layout left a gap on the right) */}
+    <table className="tbl">
+      <thead><tr><th className="w-full">Account</th><th className="hidden min-w-52 @xl:table-cell">Institution</th><th className="r hidden min-w-28 @md:table-cell">Native</th><th className="r min-w-24">{d.base}</th></tr></thead>
       {ORDER.map((type) => {
         const list = data.accounts.filter((a) => a.type === type);
         if (!list.length) return null;
