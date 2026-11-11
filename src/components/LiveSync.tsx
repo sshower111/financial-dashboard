@@ -39,7 +39,7 @@ export function LiveSync() {
           s.setData(await loadLedger(supabaseBrowser()));
         }
         // reopen the dashboard this browser had open last
-        try { const dash = localStorage.getItem(DASHBOARD_KEY); if (dash) useLedger.setState({ dashboard: dash }); } catch { /* private mode */ }
+        try { const dash = localStorage.getItem(DASHBOARD_KEY); if (dash) useLedger.getState().setDashboard(dash); } catch { /* private mode */ }
         const stored = await loadLayout(useLedger.getState().dashboard).catch(() => null);
         s.setLayout(stored == null ? DEFAULT_LAYOUT : sanitizeLayout(stored));
       } catch (e) {

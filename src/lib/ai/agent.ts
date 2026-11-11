@@ -107,7 +107,7 @@ Rules:
 - Tool results are already computed by the dashboard. Quote them as given; do not redo or "correct" the arithmetic.
 - Call only the tools the question needs (usually one or two). For date ranges prefer the "period" argument over working out dates yourself.
 - Be direct and brief: lead with the answer in one sentence, then up to 4 short supporting bullets with specific merchants, dates and amounts.
-- Amounts: in transaction rows positive = spent, negative = received. Quote money with currency codes, e.g. "USD 1,204.50".
+- Amounts: in transaction rows positive = spent, negative = received. Quote totals in the dashboard's base currency (given below; tool figures are already in it), with the code, e.g. "CAD 1,204.50". Only a single transaction may be quoted in its own currency.
 - If the tools cannot answer the question, say exactly what data is missing.
 - No investment, tax or legal advice beyond describing the user's own data.`;
 
@@ -115,7 +115,7 @@ Rules:
 export function agentMessages(o: { question: string; history?: { role: "user" | "assistant"; content: string }[]; now: Date; base: string; dashboard: string }): ChatMessage[] {
   const today = todayKey(o.now);
   const weekday = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][parseKey(today).getUTCDay()];
-  const facts = `Today is ${weekday} ${today}. Base currency: ${o.base}. Open dashboard: ${o.dashboard} (the tools cover only this dashboard's accounts). Categories: ${CATEGORIES.join(", ")}.`;
+  const facts = `Today is ${weekday} ${today}. Base currency: ${o.base} (quote every total in ${o.base}). Open dashboard: ${o.dashboard} (the tools cover only this dashboard's accounts). Categories: ${CATEGORIES.join(", ")}.`;
   return [
     { role: "system", content: `${AGENT_SYSTEM}\n${facts}` },
     ...(o.history ?? []).filter((m) => m.content?.trim()).map((m) => ({ role: m.role, content: m.content })),

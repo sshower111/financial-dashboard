@@ -1,4 +1,4 @@
-import type { Account, Budget, Holding, Transaction } from "../types.ts";
+import type { Account, Budget, Currency, Holding, Transaction } from "../types.ts";
 
 /**
  * Separate dashboards (e.g. "Personal", "Business", "Rental property"). Each has a stable id and a
@@ -6,7 +6,11 @@ import type { Account, Budget, Holding, Transaction } from "../types.ts";
  * accounts.owner_label = dashboard id; unassigned accounts are on "personal". Budgets and the panel
  * layout are per dashboard too. There is no combined view.
  */
-export interface Dashboard { id: string; name: string }
+export interface Dashboard {
+  id: string; name: string;
+  /** base currency for this dashboard's totals; unset = the currency most of its accounts use */
+  currency?: Currency;
+}
 
 export const DEFAULT_DASHBOARD = "personal";
 export const BUSINESS_DASHBOARD = "business";
@@ -25,6 +29,19 @@ export function dashboardList(saved: Dashboard[] | null | undefined, accounts: A
 }
 
 export const dashboardName = (list: Dashboard[], id: string) => list.find((d) => d.id === id)?.name ?? id;
+
+/**
+ * Base currency of a dashboard: the one the user picked for it, else the currency most of its bank
+ * and card accounts use (investment accounts are ignored: a CAD brokerage account holding US
+ * stocks doesn't make the dashboard USD). USD or CAD only; ties and empty dashboards are USD.
+ */
+export function dashboardCurrency(list: Dashboard[], accounts: Account[], id: string): "USD" | "CAD" {
+  const set = list.find((d) => d.id === id)?.currency;
+  if (set === "USD" || set === "CAD") return set;
+  const n = { USD: 0, CAD: 0 } as Record<string, number>;
+  for (const a of accounts) if (dashboardOf(a) === id && a.is_active !== false && a.type !== "investment" && a.currency in n) n[a.currency]++;
+  return n.CAD > n.USD ? "CAD" : "USD";
+}
 
 export const newDashboardId = () => `d-${Math.random().toString(36).slice(2, 10)}`;
 

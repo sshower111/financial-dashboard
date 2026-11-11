@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import { LayoutGrid, Moon, Sun, Check, RotateCcw, LogOut } from "lucide-react";
 import { useLedger } from "@/store/ledger";
 import { WIDGETS, type WidgetId } from "@/lib/layout";
-import { saveBaseCurrency } from "@/lib/persist";
+import { saveDashboards } from "@/lib/persist";
+import { dashboardList } from "@/lib/finance/scope";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { Currency } from "@/lib/types";
 import { ConnectBank } from "./ConnectBank";
@@ -29,6 +30,14 @@ function ThemeToggle() {
 
 export function TopBar() {
   const { base, demo, ai, editing, layout } = useLedger();
+  // the currency belongs to the open dashboard (saved in its entry of user_settings.dashboards)
+  const setCurrency = (c: Currency) => {
+    const st = useLedger.getState();
+    if (!st.data) return;
+    const list = dashboardList(st.data.dashboards, st.data.accounts).map((d) => (d.id === st.dashboard ? { ...d, currency: c } : d));
+    st.setDashboards(list);
+    saveDashboards(list).catch(() => {});
+  };
   const s = useLedger.getState();
   const hidden = (Object.keys(WIDGETS) as WidgetId[]).filter((w) => !layout.some((l) => l.i === w));
 
@@ -69,9 +78,9 @@ export function TopBar() {
         <button onClick={() => s.setEditing(!editing)} className={`flex h-7 items-center gap-1.5 border px-2.5 text-[12px] ${editing ? "border-accent bg-accent text-accent-ink" : "border-line hover:border-ink"}`}>
           {editing ? <><Check size={12} /> Done</> : <><LayoutGrid size={12} /> Edit layout</>}
         </button>
-        <div className="flex h-7 border border-line" role="radiogroup" aria-label="Base currency">
+        <div className="flex h-7 border border-line" role="radiogroup" aria-label="Currency for this dashboard" title="Currency for this dashboard">
           {BASES.map((c) => (
-            <button key={c} role="radio" aria-checked={base === c} onClick={() => { s.setBase(c); saveBaseCurrency(c).catch(() => {}); }}
+            <button key={c} role="radio" aria-checked={base === c} onClick={() => setCurrency(c)}
               className={`num px-2 text-[11px] ${base === c ? "bg-ink text-bg" : "text-muted hover:text-ink"}`}>{c}</button>
           ))}
         </div>

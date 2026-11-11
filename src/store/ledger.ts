@@ -2,7 +2,7 @@
 import { create } from "zustand";
 import type { Budget, Currency, Transaction } from "@/lib/types";
 import type { LedgerData } from "@/lib/ledger-load";
-import type { Dashboard } from "@/lib/finance/scope";
+import { dashboardCurrency, dashboardList, type Dashboard } from "@/lib/finance/scope";
 import { DEFAULT_LAYOUT, sanitizeLayout, type LayoutItem, type WidgetId } from "@/lib/layout";
 
 export type FeedEventKind = "ingested" | "categorized" | "flagged" | "synced";
@@ -50,6 +50,10 @@ interface State {
 let evSeq = 0;
 export const DASHBOARD_KEY = "ledger.dashboard.v2";
 
+/** Each dashboard has its own base currency (picked, else from its accounts). */
+const baseFor = (data: LedgerData | null, dashboard: string): Currency =>
+  data ? dashboardCurrency(dashboardList(data.dashboards, data.accounts), data.accounts, dashboard) : "USD";
+
 export const useLedger = create<State>((set) => ({
   status: "loading",
   demo: true,
@@ -62,7 +66,7 @@ export const useLedger = create<State>((set) => ({
   fresh: new Set(),
   dashboard: "personal",
 
-  setData: (data) => set({ data, status: "ready", base: data.base }),
+  setData: (data) => set((s) => ({ data, status: "ready", base: baseFor(data, s.dashboard) })),
   setError: (error) => set({ status: "error", error }),
   setBase: (base) => set({ base }),
   setAi: (up, model) => set({ ai: { up, model } }),
@@ -90,9 +94,9 @@ export const useLedger = create<State>((set) => ({
       return { ...a, current_balance: Math.round((a.current_balance + d) * 100) / 100, available_balance: a.available_balance == null ? null : Math.round((a.available_balance - delta) * 100) / 100 };
     }) } };
   }),
-  setDashboard: (dashboard) => { try { localStorage.setItem(DASHBOARD_KEY, dashboard); } catch { /* private mode */ } set({ dashboard }); },
-  setDashboards: (dashboards) => set((s) => (s.data ? { data: { ...s.data, dashboards } } : s)),
-  setOwnerLabel: (accountId, label) => set((s) => (s.data ? { data: { ...s.data, accounts: s.data.accounts.map((a) => (a.id === accountId ? { ...a, owner_label: label } : a)) } } : s)),
+  setDashboard: (dashboard) => { try { localStorage.setItem(DASHBOARD_KEY, dashboard); } catch { /* private mode */ } set((s) => ({ dashboard, base: baseFor(s.data, dashboard) })); },
+  setDashboards: (dashboards) => set((s) => { if (!s.data) return s; const data = { ...s.data, dashboards }; return { data, base: baseFor(data, s.dashboard) }; }),
+  setOwnerLabel: (accountId, label) => set((s) => { if (!s.data) return s; const data = { ...s.data, accounts: s.data.accounts.map((a) => (a.id === accountId ? { ...a, owner_label: label } : a)) }; return { data, base: baseFor(data, s.dashboard) }; }),
   setNickname: (accountId, nickname) => set((s) => (s.data ? { data: { ...s.data, accounts: s.data.accounts.map((a) => (a.id === accountId ? { ...a, nickname } : a)) } } : s)),
   setBudgets: (budgets) => set((s) => (s.data ? { data: { ...s.data, budgets } } : s)),
   pushEvent: (e) => set((s) => ({ events: [{ ...e, id: `ev-${++evSeq}`, at: e.at ?? new Date().toISOString() }, ...s.events].slice(0, 60) })),

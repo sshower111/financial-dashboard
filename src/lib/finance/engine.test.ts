@@ -315,3 +315,13 @@ test("recurring: investment contributions count (with one-offs in between); card
   assert.equal(leavesCash(t(1, "2026-10-01", 500, "Online Transfer to SAV ...9318", "TRANSFER_OUT_SAVINGS")), false);
   assert.equal(leavesCash(t(1, "2026-10-01", -500)), false, "money coming in");
 });
+
+test("each dashboard has its own currency: picked, else what most of its bank / card accounts use", async () => {
+  const { dashboardCurrency } = await import("./scope.ts");
+  const acct = (id: string, dash: string, currency: Account["currency"], type = "depository") => ({ ...demoAccounts[0], id, owner_label: dash, currency, type, is_active: true }) as Account;
+  const accounts = [acct("1", "ca", "CAD"), acct("2", "ca", "CAD", "credit"), acct("3", "ca", "USD", "investment"), acct("4", "us", "USD"), acct("5", "us", "CAD")];
+  const list = [{ id: "ca", name: "CA" }, { id: "us", name: "US" }];
+  assert.equal(dashboardCurrency(list, accounts, "ca"), "CAD", "a USD brokerage doesn't flip a CAD dashboard");
+  assert.equal(dashboardCurrency(list, accounts, "us"), "USD", "ties go to USD");
+  assert.equal(dashboardCurrency([{ id: "ca", name: "CA", currency: "USD" }], accounts, "ca"), "USD", "the user's pick wins");
+});

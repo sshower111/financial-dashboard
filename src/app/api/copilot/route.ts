@@ -1,7 +1,7 @@
 import { DEMO_MODE } from "@/lib/env";
 import { requireUser } from "@/lib/supabase/server";
 import { demoLedger, loadLedger, toLedger } from "@/lib/ledger-load";
-import { DEFAULT_DASHBOARD, dashboardList, dashboardName, scopeLedger } from "@/lib/finance/scope";
+import { DEFAULT_DASHBOARD, dashboardCurrency, dashboardList, dashboardName, scopeLedger } from "@/lib/finance/scope";
 import { markTransfers } from "@/lib/finance/transfers";
 import { COPILOT_SYSTEM, buildLedgerContext } from "@/lib/ai/context";
 import { OLLAMA_MODEL, OLLAMA_URL, chatStream, generateStream } from "@/lib/ai/ollama";
@@ -34,7 +34,8 @@ export async function POST(req: Request) {
   const dash = typeof dashboard === "string" && dashboard ? dashboard : DEFAULT_DASHBOARD;
   const name = dashboardName(dashboardList(data.dashboards, data.accounts), dash);
   data = scopeLedger(markTransfers(data), dash);
-  const ledger = toLedger(data, base ?? data.base);
+  // the browser sends the open dashboard's currency; without it, work it out the same way
+  const ledger = toLedger(data, base === "USD" || base === "CAD" ? base : dashboardCurrency(dashboardList(data.dashboards, data.accounts), data.accounts, dash));
   const now = new Date();
   const context = `Dashboard: ${name}. The figures below cover only this dashboard's accounts.
 ` + buildLedgerContext(ledger, now, question);
