@@ -161,7 +161,7 @@ export function Accounts() {
               const util = liab && a.limit_amount ? (a.current_balance ?? 0) / a.limit_amount : null;
               return (
                 <tr key={a.id}>
-                  <td className="max-w-0">{editing ? <Rename a={a} /> : <div className="wrap" title={a.nickname ? accountLabel({ ...a, nickname: null }) : undefined}>{accountLabel(a)}</div>}{util != null && <div className={`num text-[11px] ${util > 0.3 ? "text-accent" : "text-muted"}`}>{(util * 100).toFixed(0)}% utilized</div>}
+                  <td>{editing ? <Rename a={a} /> : <div className="wrap" title={a.nickname ? accountLabel({ ...a, nickname: null }) : undefined}>{accountLabel(a)}</div>}{util != null && <div className={`num text-[11px] ${util > 0.3 ? "text-accent" : "text-muted"}`}>{(util * 100).toFixed(0)}% utilized</div>}
                     {editing && dashboards.length > 1 && <MoveTo a={a} list={dashboards} />}</td>
                   <td className="hidden wrap text-muted @xl:table-cell">{inst.get(a.institution_id)?.name} <span className="num text-[11px]">{inst.get(a.institution_id)?.country}</span></td>
                   <td className="r hidden @md:table-cell"><Money value={bal} ccy={a.currency} /></td>

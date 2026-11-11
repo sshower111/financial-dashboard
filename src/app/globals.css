@@ -59,7 +59,7 @@ body { font-family: var(--font-sans); font-size: 13px; line-height: 1.45; -webki
 .scroll-thin { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
 
 /* table rhythm */
-.tbl { width: 100%; border-collapse: collapse; }
+.tbl { width: 100%; min-width: 100%; border-collapse: collapse; }
 .tbl-fixed { table-layout: fixed; }
 /* long merchant strings / anomaly details wrap instead of being cut off */
 .wrap { overflow-wrap: anywhere; min-width: 0; }
