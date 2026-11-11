@@ -44,6 +44,8 @@ export interface Transaction {
   is_anomaly: boolean;
   is_pending: boolean;
   created_at: string;
+  /** Plaid personal_finance_category.detailed (migration 0008); absent in demo data */
+  plaid_category?: string | null;
 }
 
 export interface Holding {

@@ -299,3 +299,19 @@ test("tidy names from raw bank text; mortgage payments are Housing", async () =>
   assert.equal(m("CHASE CREDIT CRD AUTOPAY"), null);
   assert.equal(plaidCategory({ raw: "X", amount: 5, plaid: "LOAN_PAYMENTS_MORTGAGE_PAYMENT" })?.category, "Housing");
 });
+
+test("recurring: investment contributions count (with one-offs in between); card payments don't", async () => {
+  const { leavesCash } = await import("./transfers.ts");
+  const t = (i: number, date: string, amount: number, raw = "IBKR - Bill payment", plaid = "LOAN_PAYMENTS_OTHER_PAYMENT"): Transaction => ({
+    id: `i${i}`, account_id: "a", amount, iso_currency_code: "CAD", date, raw_merchant_string: raw, cleaned_merchant_name: "Ibkr",
+    category: "Transfer", subcategory: "Loan payment", ai_confidence_score: 1, ai_tags: [], is_anomaly: false, is_pending: false, created_at: date, plaid_category: plaid,
+  });
+  const dates = ["2026-07-11", "2026-07-25", "2026-08-08", "2026-08-22", "2026-09-05", "2026-09-19", "2026-10-03", "2026-10-17"];
+  const list = [...dates.map((d, i) => t(i, d, 750)), t(20, "2026-10-19", 5000), t(21, "2026-10-30", 2000)];
+  const s = detectRecurring(list, "2026-11-04");
+  assert.equal(s.length, 1);
+  assert.deepEqual([s[0].cadenceDays, s[0].amount, s[0].transfer], [14, 750, true]);
+  assert.equal(leavesCash(t(1, "2026-10-01", 500, "Payment to Chase card ending in 4589", "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT")), false);
+  assert.equal(leavesCash(t(1, "2026-10-01", 500, "Online Transfer to SAV ...9318", "TRANSFER_OUT_SAVINGS")), false);
+  assert.equal(leavesCash(t(1, "2026-10-01", -500)), false, "money coming in");
+});

@@ -17,6 +17,18 @@ export const TRANSFER_RE = /payment\s*[-–]?\s*thank|thank you for (your )?paym
  *  markTransfers pairs both legs across the user's own accounts. */
 export const P2P_RE = /e-?transfer|\bzelle\b|\bvenmo\b/i;
 
+const BROKER_RE = /ibkr|interactive bro|wealthsimple|questrade|vanguard|fidelity|schwab|robinhood|e\*?trade|qtrade|disnat|td direct invest/i;
+
+/**
+ * A transfer that takes money out of cash for good: a contribution to an investment account or a
+ * loan payment (IBKR every two weeks). Not spending, so budgets and category totals still skip it,
+ * but recurring streams and the cash forecast must count it. Card payments are excluded (the card
+ * purchases are already counted), and so are moves between the user's own cash accounts.
+ */
+export const leavesCash = (t: Transaction) =>
+  isTransfer(t) && t.amount > 0 && !/CREDIT_CARD/.test(t.plaid_category ?? "") && !/credit card/i.test(t.subcategory ?? "")
+  && (/^LOAN_PAYMENTS|INVESTMENT/.test(t.plaid_category ?? "") || BROKER_RE.test(t.raw_merchant_string));
+
 const LIABILITY = new Set(["credit", "loan"]);
 const WINDOW_DAYS = 4;
 
