@@ -318,6 +318,53 @@ test("loop: several tools in one turn and across turns; a direct answer needs no
   assert.equal(direct.seen.length, 1);
 });
 
+test("multi-tool: an affordability question gets the forecast AND budget pace in one round", async () => {
+  const q = "Can I afford a $1,200 purchase next month given my forecast and budget pace?";
+  const m = agentMessages({ question: q, now: NOW, base: "USD", dashboard: "Personal" });
+  // the prompt tells the model this exact kind of question needs both tools, and the schemas say so too
+  assert.match(m[0].content, /get_cash_forecast AND get_budget_pacing/);
+  assert.match(TOOL_SCHEMAS.find((t) => t.function.name === "get_cash_forecast")!.function.description, /get_budget_pacing/);
+  assert.match(TOOL_SCHEMAS.find((t) => t.function.name === "get_budget_pacing")!.function.description, /get_cash_forecast/);
+
+  const model = fakeModel([
+    [{ tool_calls: [{ function: { name: "get_cash_forecast", arguments: {} } }, { function: { name: "get_budget_pacing", arguments: {} } }] }],
+    say("Probably yes: your low point stays above USD 1,200."),
+  ]);
+  const events = await collect(runAgent({ chat: model.chat, messages: m, ctx }));
+  assert.equal(model.seen.length, 2, "one tool round, then the answer");
+  const results = toolResults(model.seen[1].messages);
+  assert.deepEqual(results.map((r) => [r.name, r.ok]), [["get_cash_forecast", true], ["get_budget_pacing", true]]);
+  // both results carry the engine's figures, so the answer can weigh cash against pace
+  const [fc, bp] = results.map((r) => (r as Extract<ToolResult, { ok: true }>).result as Res);
+  assert.equal(fc.lowestBalance, r2(forecastCash(demoAccounts, txns, fx, { now: NOW }).min));
+  assert.equal(bp.allBudgets.limit, r2(budgetPacing(demoBudgets, txns, fx, NOW).total.limit));
+  assert.deepEqual(events.filter((e) => e.type === "tool").map((e) => e.type === "tool" && e.name), ["get_cash_forecast", "get_budget_pacing"]);
+  assert.equal(events.at(-1)!.type, "token");
+});
+
+test("multi-tool: the same two tools over two sequential rounds; the answer comes after both", async () => {
+  const model = fakeModel([[call("get_cash_forecast")], [call("get_budget_pacing")], say("Yes, with room to spare.")]);
+  const wire = await text(answerStream({ chat: model.chat, messages, ctx, snapshot: async function* () { yield "unused"; } }));
+  assert.equal(model.seen.length, 3);
+  assert.ok(model.seen[1].tools && model.seen[2].tools, "tools stay offered until the model answers");
+  assert.deepEqual(toolResults(model.seen[2].messages).map((r) => r.name), ["get_cash_forecast", "get_budget_pacing"]);
+  assert.deepEqual(parseWire(wire), { text: "Yes, with room to spare.", tools: ["get_cash_forecast", "get_budget_pacing"] });
+});
+
+test("multi-tool: one good and one bad call in a round; the bad one is corrected next round", async () => {
+  const model = fakeModel([
+    [{ tool_calls: [{ function: { name: "get_cash_forecast", arguments: {} } }, { function: { name: "get_budget_pacing", arguments: { category: "Crypto" } } }] }],
+    [call("get_budget_pacing")],
+    say("Done."),
+  ]);
+  const events = await collect(runAgent({ chat: model.chat, messages, ctx }));
+  assert.deepEqual(events.filter((e) => e.type === "tool"), [
+    { type: "tool", name: "get_cash_forecast", ok: true }, { type: "tool", name: "get_budget_pacing", ok: false }, { type: "tool", name: "get_budget_pacing", ok: true },
+  ]);
+  const [, bad] = toolResults(model.seen[1].messages);
+  assert.ok(!bad.ok && /Groceries, Dining/.test(bad.error.message), "the error lists the valid categories");
+});
+
 test("loop: unknown tools and bad arguments are fed back as errors and the model can recover", async () => {
   const model = fakeModel([
     [call("get_stock_tips", { ticker: "AAPL" })],
