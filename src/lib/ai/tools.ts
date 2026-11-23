@@ -117,7 +117,7 @@ const DEFS: ToolDef[] = [
   },
   {
     name: "get_cash_forecast",
-    description: "30-day cash projection ('wallet weather'): liquid cash today, projected end balance, lowest point and its date, any shortfall date, daily discretionary burn, and the dated income, bills and card payments it expects. Use for 'can I afford X', 'will I run out', upcoming bills.",
+    description: "30-day cash projection ('wallet weather'): liquid cash today, projected end balance, lowest point and its date, any shortfall date, daily discretionary burn, and the dated income, bills and card payments it expects. Use for 'can I afford X', 'will I run out', upcoming bills. For affordability questions that mention budgets or spending pace, also call get_budget_pacing.",
     properties: {},
     run: (_a, { ledger: l, now }) => {
       const f = forecastCash(l.accounts, l.transactions, l.fx, { now });
@@ -132,7 +132,7 @@ const DEFS: ToolDef[] = [
   },
   {
     name: "get_budget_pacing",
-    description: "This month's budgets: spent so far, limit, velocity (1.00 = exactly on pace for the day of the month), projected month-end spend and status (under / on-track / over). Use for 'am I over budget', 'how is my dining budget'.",
+    description: "This month's budgets: spent so far, limit, velocity (1.00 = exactly on pace for the day of the month), projected month-end spend and status (under / on-track / over). Use for 'am I over budget', 'how is my dining budget'. For 'can I afford X' questions that mention budgets, call this together with get_cash_forecast.",
     properties: { category: { type: "string", enum: CATEGORIES, description: "Only this budget category. Omit for all budgets." } },
     run: (a, { ledger: l, now }) => {
       const p = budgetPacing(l.budgets, l.transactions, l.fx, now);

@@ -1,11 +1,15 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Square } from "lucide-react";
+import { ArrowUp, RotateCcw, Square } from "lucide-react";
 import { useLedger } from "@/store/ledger";
 import { parseWire, toolLabel } from "@/lib/ai/wire";
+import { MEMORY_LIMITS, MEMORY_MAX_MESSAGES } from "@/lib/ai/memory";
 
-/** `tools`: which finance tools the model called for this answer (shown as a "used:" trace) */
-interface Msg { role: "user" | "assistant"; content: string; tools?: string[] }
+/**
+ * `tools`: which finance tools the model called for this answer (shown as a "used:" trace).
+ * `error`: a transport error shown in place of an answer; never sent back as conversation memory.
+ */
+interface Msg { role: "user" | "assistant"; content: string; tools?: string[]; error?: boolean }
 const SUGGESTIONS = ["Why was my burn rate higher this week?", "What subscriptions went up?", "Can I afford a $1,200 trip this month?", "Where is most of my dining money going?"];
 
 export function Copilot() {
@@ -32,7 +36,9 @@ export function Copilot() {
     stick.current = true; // a new question always jumps to the answer
     abort.current = new AbortController();
     try {
-      const res = await fetch("/api/copilot", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: next.map(({ role, content }) => ({ role, content })), base, dashboard }), signal: abort.current.signal });
+      // conversation memory: the recent turns of this chat (the server bounds them again), plus the question
+      const memory = next.filter((m) => !m.error && m.content.trim()).slice(-MEMORY_MAX_MESSAGES).map(({ role, content, tools }) => ({ role, content, ...(tools?.length ? { tools } : {}) }));
+      const res = await fetch("/api/copilot", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: memory, base, dashboard }), signal: abort.current.signal });
       if (!res.body) throw new Error(await res.text());
       const reader = res.body.getReader(), dec = new TextDecoder();
       let acc = "";
@@ -44,7 +50,7 @@ export function Copilot() {
         setMsgs([...next, { role: "assistant", content: text, tools }]);
       }
     } catch (e) {
-      if ((e as Error).name !== "AbortError") setMsgs([...next, { role: "assistant", content: `[${(e as Error).message}]` }]);
+      if ((e as Error).name !== "AbortError") setMsgs([...next, { role: "assistant", content: `[${(e as Error).message}]`, error: true }]);
     } finally { setBusy(false); abort.current = null; }
   }
 
@@ -77,6 +83,9 @@ export function Copilot() {
         )}
       </div>
       <form className="flex shrink-0 items-center gap-2 border-t border-line p-2" onSubmit={(e) => { e.preventDefault(); ask(input); }}>
+        {!!msgs.length && !busy && (
+          <button type="button" onClick={() => { setMsgs([]); stick.current = true; }} className="grid h-8 w-8 shrink-0 place-items-center border border-line text-muted hover:border-ink hover:text-ink" title={`New conversation. The assistant remembers the last ${MEMORY_LIMITS.maxTurns} questions of this one.`} aria-label="New conversation"><RotateCcw size={12} /></button>
+        )}
         <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Why was my burn rate higher this week?" className="h-8 min-w-0 flex-1 bg-transparent px-2 outline-none placeholder:text-muted" aria-label="Ask the copilot" />
         {busy ? (
           <button type="button" onClick={() => abort.current?.abort()} className="grid h-8 w-8 place-items-center border border-line hover:border-ink" title="Stop"><Square size={12} /></button>

@@ -72,14 +72,17 @@ export async function* generateStream(o: GenerateOptions): AsyncGenerator<string
   }
 }
 
-export interface ChatToolCall { function: { name: string; arguments: unknown } }
+/** `id` is set by OpenAI-compatible hosts (and by the agent when a host leaves it out); Ollama ignores it. */
+export interface ChatToolCall { id?: string; function: { name: string; arguments: unknown } }
 export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
   /** assistant turns that request tools */
   tool_calls?: ChatToolCall[];
-  /** tool turns: which tool this result belongs to */
+  /** tool turns: which tool this result belongs to (Ollama) */
   tool_name?: string;
+  /** tool turns: the `id` of the call this answers (OpenAI-compatible hosts) */
+  tool_call_id?: string;
 }
 export interface ChatOptions {
   messages: ChatMessage[];
@@ -88,8 +91,12 @@ export interface ChatOptions {
   temperature?: number;
   signal?: AbortSignal;
   model?: string;
+  /** defaults to OLLAMA_URL */
+  baseUrl?: string;
 }
-export interface ChatChunk { content?: string; tool_calls?: ChatToolCall[] }
+/** Token counts for one model call, when the host reports them (Ollama: prompt_eval_count / eval_count). */
+export interface ChatUsage { promptTokens?: number; completionTokens?: number }
+export interface ChatChunk { content?: string; tool_calls?: ChatToolCall[]; usage?: ChatUsage }
 
 /**
  * Streams one `/api/chat` turn: text deltas and, when the model decides to call tools, its
@@ -97,7 +104,7 @@ export interface ChatChunk { content?: string; tool_calls?: ChatToolCall[] }
  */
 export async function* chatStream(o: ChatOptions): AsyncGenerator<ChatChunk> {
   const model = o.model ?? OLLAMA_MODEL;
-  const res = await fetch(`${OLLAMA_URL}/api/chat`, {
+  const res = await fetch(`${(o.baseUrl ?? OLLAMA_URL).replace(/\/$/, "")}/api/chat`, {
     method: "POST", headers: { "content-type": "application/json" }, signal: o.signal,
     body: JSON.stringify({
       model, messages: o.messages, ...(o.tools?.length ? { tools: o.tools } : {}), stream: true,
@@ -107,10 +114,13 @@ export async function* chatStream(o: ChatOptions): AsyncGenerator<ChatChunk> {
     }),
   });
   if (!res.ok || !res.body) throw new Error(`Ollama ${res.status}: ${res.body ? await res.text() : "no body"}`);
-  for await (const chunk of ndjson<{ message?: { content?: string; tool_calls?: ChatToolCall[] }; done?: boolean; error?: string }>(res)) {
+  for await (const chunk of ndjson<{ message?: { content?: string; tool_calls?: ChatToolCall[] }; done?: boolean; error?: string; prompt_eval_count?: number; eval_count?: number }>(res)) {
     const m = chunk.message;
     if (m?.content || m?.tool_calls?.length) yield { content: m.content || undefined, tool_calls: m.tool_calls?.length ? m.tool_calls : undefined };
-    if (chunk.done) return;
+    if (chunk.done) {
+      if (chunk.prompt_eval_count !== undefined || chunk.eval_count !== undefined) yield { usage: { promptTokens: chunk.prompt_eval_count, completionTokens: chunk.eval_count } };
+      return;
+    }
   }
 }
 
