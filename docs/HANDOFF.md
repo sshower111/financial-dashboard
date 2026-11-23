@@ -50,6 +50,10 @@ All settings live in `.env.local` (never committed). `.env.example` lists every 
 | `PLAID_REDIRECT_URI`, `PLAID_WEBHOOK_URL` | `https://<tunnel>/oauth` and `https://<tunnel>/api/plaid/webhook`. The redirect URI must also be registered in the Plaid dashboard. |
 | `OLLAMA_URL`, `OLLAMA_MODEL` | Ollama endpoint and the Assistant model. |
 | `OLLAMA_CATEGORIZE_MODEL`, `CATEGORIZE_BATCH`, `OLLAMA_TIMEOUT_MS` | Optional overrides for worker categorization (defaults: `qwen2.5:1.5b`, 50, 10 min). |
+| `COPILOT_TOOLS` | `off` forces the Assistant's snapshot path (no tool calling). |
+| `COPILOT_PROVIDER`, `COPILOT_BASE_URL`, `COPILOT_API_KEY`, `COPILOT_MODEL` | Optional hosted model for the Assistant: `openai-compatible` + an OpenAI-style `/chat/completions` endpoint with tool calling (Azure AI Foundry / Azure OpenAI: `https://<resource>.openai.azure.com/openai/v1`, model = deployment name). `COPILOT_API_KEY_HEADER=api-key` / `COPILOT_API_VERSION` for older Azure endpoints. Default (unset) is local Ollama. Server-side only. With a hosted model, ledger figures from tool results leave the machine. |
+| `COPILOT_TRACE`, `COPILOT_TRACE_FILE` | Assistant tracing: `console` (default), `file` (`logs/copilot-trace.jsonl`, git-ignored) or `off`. No question/answer text, merchants or amounts are recorded. |
+| `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL` | Optional: also export each trace to Langfuse. Off unless both keys are set. |
 
 In Supabase → Authentication → URL Configuration, the redirect URLs must include `https://<tunnel>/auth/callback`.
 
@@ -90,12 +94,50 @@ Security model, which every change must keep: RLS on every table. Clients can't 
 | **Live feed** | `src/components/widgets/Feed.tsx` | Sort newest/oldest, from/to date filter. |
 | UI fixes | Panels, `globals.css` | Text wraps instead of truncating. Panels adapt to their own width (container queries). Chart hover dots are no longer clipped. "Copilot" is now "Assistant" in the UI (internal names unchanged). The Assistant only auto-scrolls while you're at the bottom. |
 
+## 5b. Assistant: memory, evals, tracing, providers (branch `copilot-evals-memory`, stacked on `copilot-tool-calling`)
+
+| Feature | Where | Notes |
+|---|---|---|
+| Conversation memory | `src/lib/ai/memory.ts`, `Copilot.tsx`, `/api/copilot` | Last 6 turns, ~6,000 chars, sanitized on the server. Held in the browser tab only; ↺ starts a new conversation. |
+| Multi-tool questions | `AGENT_SYSTEM` in `agent.ts`, tool descriptions in `tools.ts` | e.g. "Can I afford a $1,200 purchase next month given my forecast and budget pace?" → forecast + budget pacing. |
+| Tool-selection eval | `src/lib/ai/eval/`, `scripts/eval-copilot.ts`, `npm run eval:copilot` | 27 cases over the demo ledger. Reports go to `docs/evals/`. |
+| Tracing | `src/lib/ai/trace.ts` | One `[copilot-trace]` JSON line per request in the server log; optional Langfuse export. |
+| Hosted model option | `src/lib/ai/provider.ts`, `openai-compat.ts` | `COPILOT_PROVIDER=openai-compatible`. Not configured anywhere yet. |
+
+**Public demo and hosted models:** nothing was changed on Vercel, and the demo stays keyless (its Assistant shows the "runs locally" message). Turning on a hosted model for the public demo would put a paid API behind an open URL; it would need rate limiting (per IP / per session) and a spend cap at the provider first. That's the owner's decision.
+
+### Running the eval against the local model (Windows PowerShell)
+
+Ollama must be running with the model pulled (`ollama pull qwen3.5:9b`). The script reads `.env.local`, so `OLLAMA_URL` / `OLLAMA_MODEL` from there apply; `--model` overrides.
+
+```
+npm install
+```
+```
+npm run eval:copilot
+```
+
+That uses `OLLAMA_MODEL` (default `qwen3.5:9b`). It prints one line per case and a scorecard, and writes `docs/evals/copilot-qwen3.5-9b-<date>.md` and `.json`. Commit those two files: they are the first measured results.
+
+Flags go through `npx tsx` rather than `npm run ... -- ...`, because PowerShell can drop the `--` before npm sees it. A different model, or only some cases:
+
+```
+npx tsx scripts/eval-copilot.ts --model qwen3.5:9b --only afford-1200,compare-months
+```
+
+A first case can take minutes on CPU while the model loads; the untimed warm-up call absorbs that, and `--timeout 300000` raises the per-case limit (default 180 s).
+
 ## 6. Verification status
 
 **Verified:**
 - `npm run typecheck`, `npm test` (13 tests) and `npm run build` pass (2026-11-09).
 - Every UI change was driven in demo mode in headless Chrome: dashboard switching, renaming, adding and moving accounts, feed sort and filter, Assistant scrolling with a long stubbed stream, and a scan for clipped text at 1440, 820 and 390px.
 - The owner confirmed dashboards and linking against real data.
+
+**Assistant (memory / evals / tracing / providers), 2026-11-23:**
+- Verified: `npm test` (69 tests, including the eval-harness self-test), `npm run typecheck`, `npm run build`, `npm run eval:copilot -- --fake` (27/27 with the scripted model, which only proves the harness works).
+- Verified with throwaway mock HTTP servers (not in the repo) against the built app in demo mode: Ollama path (two tools in one round, history in the request, a `system` message from the client dropped, call ids on tool results, trace line with token counts), and the OpenAI-compatible path (Bearer auth, streamed tool-call fragments assembled, ids round-tripped, usage counted).
+- **Not verified:** any real model. How well qwen3.5:9b picks tools, fills arguments and handles follow-ups is unknown until the owner runs the eval. The OpenAI-compatible provider has not been run against a real Azure / OpenAI deployment. The Langfuse export has only been checked for its request shape (no Langfuse account was used). The ↺ button and memory were not clicked through in a browser.
 
 **Not yet verified against real data:**
 - The live sync-progress indicator.
@@ -114,6 +156,8 @@ Security model, which every change must keep: RLS on every table. Clients can't 
 6. CSV import for brokers Plaid doesn't cover.
 7. Open question from the owner: a "session" label seen in Live activity. It isn't in the code, so it probably comes from a bank's raw description or an AI subcategory. Find the row and check `raw_merchant_string` / `subcategory`.
 8. `AGENTS.md` (untracked) is a Codex copy of these notes plus a block Next.js appended. `agentRules: false` is now set in `next.config.ts` (75854e7), so Next stops rewriting it. Owner to decide: delete it, or remove the Next block and commit it.
+9. Run `npm run eval:copilot` against qwen3.5:9b and commit the report (§5b). If tool selection is weak, tune `AGENT_SYSTEM` / tool descriptions and re-run.
+10. Hosted model for the public demo: off; needs rate limiting and a spend cap before it could be considered (owner's call).
 
 ## 8. Working on the code
 
